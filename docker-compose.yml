@@ -15,7 +15,7 @@ services:
     healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 20 }
 
   parser:
-    build: ./apps/parser
+    build: { context: ., dockerfile: apps/parser/Dockerfile }
     environment: { NODE_ENV: production, MAX_FILE_SIZE_MB: 50 }
     healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"], interval: 10s, timeout: 5s, retries: 20 }
 

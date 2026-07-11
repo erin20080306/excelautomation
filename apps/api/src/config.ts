@@ -17,13 +17,17 @@ const envSchema = z.object({
   S3_REGION: z.string().default('auto'),
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),
-  S3_SECRET_ACCESS_KEY: z.string().optional()
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).transform((value) => value === 'true').optional()
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
 
-export function loadConfig(): AppConfig {
-  const parsed = envSchema.safeParse(process.env);
+export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
+  const parsed = envSchema.safeParse({
+    ...environment,
+    API_PORT: environment.API_PORT ?? environment.PORT
+  });
   if (!parsed.success) {
     throw new Error(`環境變數設定錯誤: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ')}`);
   }

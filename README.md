@@ -65,6 +65,8 @@ VITE_API_URL=https://你的常駐-api-domain.example/api
 
 Fastify API、BullMQ Worker、Python Parser、PostgreSQL、Redis 與檔案儲存需部署到支援常駐程序的平台。若 Vercel build log 顯示工作目錄為 `/vercel/path0/apps/api`，代表 Root Directory 仍設錯，需在 Project Settings → Build and Deployment 改回 `.` 後重新部署。
 
+完整正式環境建議使用 Railway 託管 API、Worker、Parser、PostgreSQL、Redis 與 S3 相容 Bucket，並保留 Vercel 作為前端。逐步操作、環境變數及驗收方式請見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。Repository 根目錄已提供三份 Railway Config as Code 檔案，可分別套用至三個服務。
+
 ## 驗證
 
 ```bash

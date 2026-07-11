@@ -25,7 +25,9 @@ class S3WorkerStorage implements WorkerStorage {
   private readonly client = new S3Client({
     endpoint: process.env.S3_ENDPOINT,
     region: process.env.S3_REGION ?? 'auto',
-    forcePathStyle: Boolean(process.env.S3_ENDPOINT),
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === undefined
+      ? Boolean(process.env.S3_ENDPOINT)
+      : process.env.S3_FORCE_PATH_STYLE === 'true',
     credentials: process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY ? { accessKeyId: process.env.S3_ACCESS_KEY_ID, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY } : undefined
   });
   constructor(private readonly bucket: string) {}
