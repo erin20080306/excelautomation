@@ -15,6 +15,31 @@ export const JOB_STATUSES = [
 
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
+export const PROCESSING_QUEUE_NAME = 'excel_processing';
+
+export const processingQueueMessageSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('analyze-file'),
+    processingJobId: z.string().cuid(),
+    itemId: z.string().cuid(),
+    maxAttempts: z.number().int().min(1).max(10).default(3)
+  }),
+  z.object({
+    type: z.literal('export-workbook'),
+    exportJobId: z.string().cuid(),
+    maxAttempts: z.number().int().min(1).max(10).default(2)
+  })
+]);
+
+export type ProcessingQueueMessage = z.infer<typeof processingQueueMessageSchema>;
+
+export function pgmqRetryDelaySeconds(readCount: number, baseSeconds = 2, maximumSeconds = 300): number {
+  const safeReadCount = Math.max(1, Math.floor(readCount));
+  const safeBase = Math.max(1, Math.floor(baseSeconds));
+  const safeMaximum = Math.max(safeBase, Math.floor(maximumSeconds));
+  return Math.min(safeMaximum, safeBase * 2 ** (safeReadCount - 1));
+}
+
 export const reportTypeLabels: Record<ReportTypeKey, string> = {
   quotation: '報價資料', order: '訂單資料', purchase: '採購資料', sales: '銷售資料',
   inventory: '庫存資料', attendance: '出勤資料', payroll: '薪資資料', customer: '客戶資料',

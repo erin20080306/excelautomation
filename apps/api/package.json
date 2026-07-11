@@ -7,6 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
+    "queue:init": "node dist/queue-init.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.seed.json --noEmit"
   },
   "dependencies": {
@@ -19,7 +20,6 @@
     "@fastify/sensible": "6.0.2",
     "@prisma/client": "6.2.1",
     "bcryptjs": "2.4.3",
-    "bullmq": "5.80.1",
     "fastify": "5.10.0",
     "fastify-plugin": "5.0.1",
     "file-type": "22.0.1",

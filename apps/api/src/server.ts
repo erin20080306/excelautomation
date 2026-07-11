@@ -7,7 +7,7 @@ import sensible from '@fastify/sensible';
 import { ZodError } from 'zod';
 import { loadConfig } from './config.js';
 import { prisma } from './lib/prisma.js';
-import { processingQueue } from './lib/queue.js';
+import { ensureProcessingQueue } from './lib/queue.js';
 import { createStorage } from './lib/storage.js';
 import { authPlugin } from './plugins/auth.js';
 import { authRoutes } from './routes/auth.js';
@@ -16,6 +16,7 @@ import { fileRoutes } from './routes/files.js';
 import { exportRoutes } from './routes/exports.js';
 
 const config = loadConfig();
+await ensureProcessingQueue();
 const storage = createStorage(config);
 const app = Fastify({
   logger: { level: config.NODE_ENV === 'development' ? 'info' : 'warn', redact: ['req.headers.authorization', 'req.headers.cookie', 'body.password', 'body.credential'] },
@@ -62,7 +63,6 @@ await app.register(async (scope) => exportRoutes(scope, storage), { prefix: '/ap
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, 'shutting down');
   await app.close();
-  await processingQueue.close();
   await prisma.$disconnect();
   process.exit(0);
 }

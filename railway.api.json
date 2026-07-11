@@ -12,7 +12,10 @@
     ]
   },
   "deploy": {
-    "preDeployCommand": ["npx prisma db push --schema apps/api/prisma/schema.prisma"],
+    "preDeployCommand": [
+      "npx prisma db push --schema apps/api/prisma/schema.prisma",
+      "npm run queue:init -w @excelmaster/api"
+    ],
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ALWAYS",

@@ -10,7 +10,7 @@ import unzipper from 'unzipper';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { processingQueue } from '../lib/queue.js';
+import { enqueueProcessingMessage, enqueueProcessingMessages } from '../lib/queue.js';
 import type { StorageAdapter } from '../lib/storage.js';
 import { assertSafeArchivePath, safeFileName } from '../lib/security.js';
 import { writeAudit } from '../lib/audit.js';
@@ -145,8 +145,11 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
       }
       let processingJob = null;
       if (accepted.length) {
-        processingJob = await prisma.processingJob.create({ data: { workspaceId: request.auth.workspaceId, projectId, name: batchName, totalItems: accepted.length, items: { create: accepted.map((sourceFileId) => ({ sourceFileId })) } }, include: { items: true } });
-        await Promise.all(processingJob.items.map((item) => processingQueue.add('analyze-file', { processingJobId: processingJob!.id, itemId: item.id }, { jobId: item.id, attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 500, removeOnFail: 1000 })));
+        processingJob = await prisma.$transaction(async (tx) => {
+          const created = await tx.processingJob.create({ data: { workspaceId: request.auth.workspaceId, projectId, name: batchName, totalItems: accepted.length, items: { create: accepted.map((sourceFileId) => ({ sourceFileId })) } }, include: { items: true } });
+          await enqueueProcessingMessages(tx, created.items.map((item) => ({ type: 'analyze-file', processingJobId: created.id, itemId: item.id, maxAttempts: 3 })));
+          return created;
+        });
       }
       await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'files.upload', entityType: 'ProcessingJob', entityId: processingJob?.id, metadata: { accepted: accepted.length, duplicates: duplicates.length, rejected: rejected.length }, ipAddress: request.ip });
       return reply.code(202).send({ job: processingJob, accepted: accepted.length, duplicates: duplicates.length, rejected });
@@ -159,10 +162,13 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
     const { id } = z.object({ id: z.string().cuid() }).parse(request.params);
     const source = await prisma.sourceFile.findFirst({ where: { id, workspaceId: request.auth.workspaceId } });
     if (!source) throw app.httpErrors.notFound('找不到來源檔案');
-    const job = await prisma.processingJob.create({ data: { workspaceId: request.auth.workspaceId, name: `重新分析：${source.name}`, totalItems: 1, items: { create: { sourceFileId: id } } }, include: { items: true } });
-    const item = job.items[0];
-    if (!item) throw new Error('無法建立處理項目');
-    await processingQueue.add('analyze-file', { processingJobId: job.id, itemId: item.id }, { jobId: item.id, attempts: 3, backoff: { type: 'exponential', delay: 2000 } });
+    const job = await prisma.$transaction(async (tx) => {
+      const created = await tx.processingJob.create({ data: { workspaceId: request.auth.workspaceId, name: `重新分析：${source.name}`, totalItems: 1, items: { create: { sourceFileId: id } } }, include: { items: true } });
+      const item = created.items[0];
+      if (!item) throw new Error('無法建立處理項目');
+      await enqueueProcessingMessage(tx, { type: 'analyze-file', processingJobId: created.id, itemId: item.id, maxAttempts: 3 });
+      return created;
+    });
     return reply.code(202).send(job);
   });
 }

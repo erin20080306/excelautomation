@@ -3,21 +3,42 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { Worker, type Job } from 'bullmq';
 import axios from 'axios';
 import FormData from 'form-data';
 import { PrismaClient, type Prisma } from '@prisma/client';
-import { analysisSchema, runIntegration, type DataSet, type PipelineOperation, type WorkbookAnalysis } from '@excelmaster/shared';
+import {
+  analysisSchema,
+  pgmqRetryDelaySeconds,
+  processingQueueMessageSchema,
+  runIntegration,
+  type DataSet,
+  type PipelineOperation,
+  type ProcessingQueueMessage,
+  type WorkbookAnalysis
+} from '@excelmaster/shared';
 import { createWorkerStorage } from './storage.js';
+import {
+  archiveProcessingMessage,
+  delayProcessingMessage,
+  deleteProcessingMessage,
+  ensureProcessingQueue,
+  readProcessingMessages,
+  type PgmqMessageRecord
+} from './queue.js';
 
 const prisma = new PrismaClient();
 const storage = createWorkerStorage();
 const parserUrl = process.env.PARSER_URL ?? 'http://localhost:8000';
-const redisUrl = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
-const connection = {
-  host: redisUrl.hostname, port: Number(redisUrl.port || 6379), username: redisUrl.username || undefined,
-  password: redisUrl.password || undefined, db: Number(redisUrl.pathname.slice(1) || 0), tls: redisUrl.protocol === 'rediss:' ? {} : undefined
-};
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value ?? fallback);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const concurrency = positiveInteger(process.env.WORKER_CONCURRENCY, 3);
+const visibilityTimeoutSeconds = positiveInteger(process.env.PGMQ_VISIBILITY_TIMEOUT_SECONDS, 1800);
+const pollIntervalMs = positiveInteger(process.env.PGMQ_POLL_INTERVAL_MS, 1000);
+const retryBaseSeconds = positiveInteger(process.env.PGMQ_RETRY_BASE_SECONDS, 2);
 
 async function updateStage(itemId: string, status: any, progress: number): Promise<void> {
   await prisma.processingJobItem.update({ where: { id: itemId }, data: { status, progress, startedAt: progress > 0 ? new Date() : undefined } });
@@ -109,30 +130,29 @@ async function applyWorkspaceMemory(workspaceId: string, analysis: WorkbookAnaly
   }
 }
 
-async function analyzeItem(job: Job<{ processingJobId: string; itemId: string }>): Promise<void> {
-  const { itemId, processingJobId } = job.data;
+async function analyzeItem(message: Extract<ProcessingQueueMessage, { type: 'analyze-file' }>): Promise<void> {
+  const { itemId, processingJobId } = message;
   const item = await prisma.processingJobItem.findUnique({ where: { id: itemId }, include: { sourceFile: true, job: true } });
-  if (!item || item.job.status === 'cancelled') return;
+  if (!item || item.status === 'completed' || item.job.status === 'cancelled') return;
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'excelmaster-worker-'));
   const localPath = path.join(tempDir, `source${item.sourceFile.extension}`);
   try {
     await prisma.processingJob.update({ where: { id: processingJobId }, data: { status: 'downloading', startedAt: new Date() } });
-    await updateStage(itemId, 'downloading', 8); await job.updateProgress(8);
+    await updateStage(itemId, 'downloading', 8);
     await storage.download(item.sourceFile.storageKey, localPath);
-    await updateStage(itemId, 'validating', 18); await job.updateProgress(18);
+    await updateStage(itemId, 'validating', 18);
     const form = new FormData();
     form.append('file', fs.createReadStream(localPath), { filename: item.sourceFile.name, contentType: item.sourceFile.mimeType });
     form.append('original_name', item.sourceFile.name);
-    await updateStage(itemId, 'analyzing', 35); await job.updateProgress(35);
+    await updateStage(itemId, 'analyzing', 35);
     const response = await axios.post(`${parserUrl}/analyze`, form, { headers: form.getHeaders(), maxBodyLength: Infinity, maxContentLength: Infinity, timeout: 10 * 60 * 1000 });
-    await updateStage(itemId, 'classifying', 58); await job.updateProgress(58);
+    await updateStage(itemId, 'classifying', 58);
     const analysis = analysisSchema.parse(response.data);
-    await updateStage(itemId, 'mapping', 75); await job.updateProgress(75);
+    await updateStage(itemId, 'mapping', 75);
     await applyWorkspaceMemory(item.job.workspaceId, analysis);
     await persistAnalysis(item.sourceFileId, item.job.workspaceId, analysis);
-    await updateStage(itemId, 'cleaning', 92); await job.updateProgress(92);
+    await updateStage(itemId, 'cleaning', 92);
     await prisma.processingJobItem.update({ where: { id: itemId }, data: { status: 'completed', progress: 100, completedAt: new Date(), error: null } });
-    await job.updateProgress(100);
   } catch (error) {
     const message = axios.isAxiosError(error) ? String(error.response?.data?.detail ?? error.message) : error instanceof Error ? error.message : '未知處理錯誤';
     await prisma.processingJobItem.update({ where: { id: itemId }, data: { status: 'failed', error: message.slice(0, 2000), completedAt: new Date() } });
@@ -144,9 +164,10 @@ async function analyzeItem(job: Job<{ processingJobId: string; itemId: string }>
   }
 }
 
-async function exportWorkbook(job: Job<{ exportJobId: string }>): Promise<void> {
-  const exportJob = await prisma.exportJob.findUnique({ where: { id: job.data.exportJobId }, include: { processingJob: { include: { project: true, items: { include: { sourceFile: { include: { analyses: { orderBy: { version: 'desc' }, take: 1 } } } } } } } } });
+async function exportWorkbook(message: Extract<ProcessingQueueMessage, { type: 'export-workbook' }>): Promise<void> {
+  const exportJob = await prisma.exportJob.findUnique({ where: { id: message.exportJobId }, include: { processingJob: { include: { project: true, items: { include: { sourceFile: { include: { analyses: { orderBy: { version: 'desc' }, take: 1 } } } } } } } } });
   if (!exportJob?.processingJob) throw new Error('匯出批次不存在');
+  if (exportJob.status === 'COMPLETED') return;
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'excelmaster-export-'));
   const output = path.join(tempDir, 'result.xlsx');
   try {
@@ -165,8 +186,10 @@ async function exportWorkbook(job: Job<{ exportJobId: string }>): Promise<void> 
     const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
     const storageKey = `${exportJob.workspaceId}/exports/${exportJob.id}/${Date.now()}.xlsx`;
     await storage.upload(storageKey, output, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    await prisma.exportFile.create({ data: { exportJobId: exportJob.id, name: `${exportJob.name.replace(/\.xlsx$/i, '')}.xlsx`, storageKey, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: bytes.length, sha256 } });
-    await prisma.exportJob.update({ where: { id: exportJob.id }, data: { status: 'COMPLETED', completedAt: new Date(), error: null } });
+    await prisma.$transaction([
+      prisma.exportFile.create({ data: { exportJobId: exportJob.id, name: `${exportJob.name.replace(/\.xlsx$/i, '')}.xlsx`, storageKey, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: bytes.length, sha256 } }),
+      prisma.exportJob.update({ where: { id: exportJob.id }, data: { status: 'COMPLETED', completedAt: new Date(), error: null } })
+    ]);
   } catch (error) {
     const message = axios.isAxiosError(error) ? String(error.response?.data?.detail ?? error.message) : error instanceof Error ? error.message : '未知匯出錯誤';
     await prisma.exportJob.update({ where: { id: exportJob.id }, data: { status: 'FAILED', error: message.slice(0, 2000), completedAt: new Date() } });
@@ -176,19 +199,87 @@ async function exportWorkbook(job: Job<{ exportJobId: string }>): Promise<void> 
   }
 }
 
-const worker = new Worker('excel-processing', async (job) => {
-  if (job.name === 'analyze-file') return analyzeItem(job as Job<{ processingJobId: string; itemId: string }>);
-  if (job.name === 'export-workbook') return exportWorkbook(job as Job<{ exportJobId: string }>);
-  throw new Error(`不支援的工作類型：${job.name}`);
-}, { connection, concurrency: Number(process.env.WORKER_CONCURRENCY ?? 3), lockDuration: 10 * 60 * 1000 });
-
-worker.on('failed', (job, error) => console.error(JSON.stringify({ event: 'job.failed', jobId: job?.id, message: error.message })));
-worker.on('completed', (job) => console.log(JSON.stringify({ event: 'job.completed', jobId: job.id })));
-
-async function shutdown(): Promise<void> {
-  await worker.close();
-  await prisma.$disconnect();
-  process.exit(0);
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+
+async function withVisibilityHeartbeat(messageId: bigint, task: () => Promise<void>): Promise<void> {
+  const heartbeatIntervalMs = Math.max(5000, Math.floor((visibilityTimeoutSeconds * 1000) / 3));
+  let heartbeatInFlight = Promise.resolve();
+  let heartbeatError: unknown;
+  const timer = setInterval(() => {
+    heartbeatInFlight = heartbeatInFlight
+      .then(() => delayProcessingMessage(prisma, messageId, visibilityTimeoutSeconds))
+      .catch((error) => {
+        heartbeatError = error;
+        console.error(JSON.stringify({ event: 'queue.heartbeat_failed', messageId: messageId.toString(), message: error instanceof Error ? error.message : String(error) }));
+      });
+  }, heartbeatIntervalMs);
+  timer.unref();
+  let taskError: unknown;
+  try {
+    await task();
+  } catch (error) {
+    taskError = error;
+  }
+  clearInterval(timer);
+  await heartbeatInFlight;
+  if (heartbeatError) throw heartbeatError;
+  if (taskError) throw taskError;
+}
+
+async function processMessage(record: PgmqMessageRecord): Promise<void> {
+  let message: ProcessingQueueMessage;
+  try {
+    message = processingQueueMessageSchema.parse(record.message);
+  } catch (error) {
+    await archiveProcessingMessage(prisma, record.msg_id);
+    console.error(JSON.stringify({ event: 'queue.invalid', messageId: record.msg_id.toString(), error: error instanceof Error ? error.message : String(error) }));
+    return;
+  }
+
+  try {
+    await withVisibilityHeartbeat(record.msg_id, async () => {
+      if (message.type === 'analyze-file') await analyzeItem(message);
+      else await exportWorkbook(message);
+    });
+    await deleteProcessingMessage(prisma, record.msg_id);
+    console.log(JSON.stringify({ event: 'queue.completed', messageId: record.msg_id.toString(), type: message.type }));
+  } catch (error) {
+    const attempts = Number(record.read_ct);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (attempts >= message.maxAttempts) {
+      await archiveProcessingMessage(prisma, record.msg_id);
+      console.error(JSON.stringify({ event: 'queue.failed', messageId: record.msg_id.toString(), type: message.type, attempts, message: errorMessage }));
+      return;
+    }
+    const delaySeconds = pgmqRetryDelaySeconds(attempts, retryBaseSeconds);
+    await delayProcessingMessage(prisma, record.msg_id, delaySeconds);
+    console.warn(JSON.stringify({ event: 'queue.retry', messageId: record.msg_id.toString(), type: message.type, attempts, delaySeconds, message: errorMessage }));
+  }
+}
+
+let stopping = false;
+process.once('SIGTERM', () => { stopping = true; });
+process.once('SIGINT', () => { stopping = true; });
+
+async function runWorker(): Promise<void> {
+  await ensureProcessingQueue(prisma);
+  console.log(JSON.stringify({ event: 'worker.ready', queue: 'excel_processing', concurrency, visibilityTimeoutSeconds }));
+  while (!stopping) {
+    try {
+      const messages = await readProcessingMessages(prisma, visibilityTimeoutSeconds, concurrency);
+      if (messages.length) await Promise.all(messages.map(processMessage));
+      else await sleep(pollIntervalMs);
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'queue.poll_failed', message: error instanceof Error ? error.message : String(error) }));
+      await sleep(Math.max(1000, pollIntervalMs));
+    }
+  }
+}
+
+try {
+  await runWorker();
+} finally {
+  await prisma.$disconnect();
+}

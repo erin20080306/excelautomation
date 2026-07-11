@@ -14,6 +14,6 @@
   },
   "deploy": {
     "restartPolicyType": "ALWAYS",
-    "drainingSeconds": "60"
+    "drainingSeconds": "300"
   }
 }

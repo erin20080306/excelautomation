@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { processingQueue } from '../lib/queue.js';
+import { enqueueProcessingMessage } from '../lib/queue.js';
 import type { StorageAdapter } from '../lib/storage.js';
 import { signDownload, verifyDownload } from '../lib/security.js';
 import { writeAudit } from '../lib/audit.js';
@@ -36,8 +36,11 @@ export async function exportRoutes(app: FastifyInstance, storage: StorageAdapter
     const processingJob = await prisma.processingJob.findFirst({ where: { id: body.processingJobId, workspaceId: request.auth.workspaceId }, include: { items: true } });
     if (!processingJob) throw app.httpErrors.notFound('找不到處理批次');
     if (!['completed', 'awaiting_review'].includes(processingJob.status)) throw app.httpErrors.badRequest('批次尚未完成分析');
-    const exportJob = await prisma.exportJob.create({ data: { workspaceId: request.auth.workspaceId, processingJobId: body.processingJobId, name: body.name, config: body.config } });
-    await processingQueue.add('export-workbook', { exportJobId: exportJob.id }, { jobId: `export-${exportJob.id}`, attempts: 2, backoff: { type: 'exponential', delay: 3000 } });
+    const exportJob = await prisma.$transaction(async (tx) => {
+      const created = await tx.exportJob.create({ data: { workspaceId: request.auth.workspaceId, processingJobId: body.processingJobId, name: body.name, config: body.config } });
+      await enqueueProcessingMessage(tx, { type: 'export-workbook', exportJobId: created.id, maxAttempts: 2 });
+      return created;
+    });
     await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'export.create', entityType: 'ExportJob', entityId: exportJob.id });
     return reply.code(202).send(exportJob);
   });

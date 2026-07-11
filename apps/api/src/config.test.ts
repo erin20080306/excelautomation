@@ -3,7 +3,6 @@ import { loadConfig } from './config.js';
 
 const required = {
   DATABASE_URL: 'postgresql://user:password@localhost:5432/excelmaster',
-  REDIS_URL: 'redis://localhost:6379',
   JWT_SECRET: 'a-secure-secret-with-at-least-32-characters',
   FIELD_ENCRYPTION_KEY: 'a'.repeat(64)
 };
