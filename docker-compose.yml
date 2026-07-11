@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: excelmaster
+      POSTGRES_PASSWORD: excelmaster
+      POSTGRES_DB: excelmaster
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U excelmaster"], interval: 5s, timeout: 5s, retries: 20 }
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis_data:/data]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 20 }
+
+  parser:
+    build: ./apps/parser
+    environment: { NODE_ENV: production, MAX_FILE_SIZE_MB: 50 }
+    healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"], interval: 10s, timeout: 5s, retries: 20 }
+
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://excelmaster:excelmaster@postgres:5432/excelmaster?schema=public
+      REDIS_URL: redis://redis:6379
+      PARSER_URL: http://parser:8000
+      STORAGE_LOCAL_PATH: /app/storage
+      WEB_ORIGIN: http://localhost:8080
+    volumes: [file_storage:/app/storage]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      parser: { condition: service_healthy }
+    ports: ["4000:4000"]
+
+  worker:
+    build: { context: ., dockerfile: apps/worker/Dockerfile }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://excelmaster:excelmaster@postgres:5432/excelmaster?schema=public
+      REDIS_URL: redis://redis:6379
+      PARSER_URL: http://parser:8000
+      STORAGE_LOCAL_PATH: /app/storage
+    volumes: [file_storage:/app/storage]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      parser: { condition: service_healthy }
+
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile, args: { VITE_API_URL: /api } }
+    depends_on: [api]
+    ports: ["8080:80"]
+
+volumes:
+  postgres_data:
+  redis_data:
+  file_storage:

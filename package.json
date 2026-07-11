@@ -1,0 +1,34 @@
+{
+  "name": "excelmaster-platform",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api,worker -c blue,green,magenta \"npm run dev -w @excelmaster/web\" \"npm run dev -w @excelmaster/api\" \"npm run dev -w @excelmaster/worker\"",
+    "build": "npm run build -w @excelmaster/shared && npm run build -w @excelmaster/api && npm run build -w @excelmaster/worker && npm run build -w @excelmaster/web",
+    "typecheck": "npm run build -w @excelmaster/shared && npm run typecheck --workspaces --if-present",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
+    "test": "npm run test:unit && npm run test:parser",
+    "test:unit": "vitest run",
+    "test:parser": "apps/parser/.venv/bin/python -m pytest apps/parser/tests -q",
+    "test:watch": "vitest",
+    "db:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
+    "db:push": "prisma db push --schema apps/api/prisma/schema.prisma",
+    "db:seed": "tsx apps/api/prisma/seed.ts",
+    "postinstall": "npm run db:generate"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "@typescript-eslint/eslint-plugin": "8.19.1",
+    "@typescript-eslint/parser": "8.19.1",
+    "concurrently": "9.1.2",
+    "eslint": "8.57.1",
+    "eslint-plugin-react-hooks": "5.1.0",
+    "tsx": "4.23.0",
+    "typescript": "5.7.3",
+    "vitest": "4.1.10"
+  }
+}

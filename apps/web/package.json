@@ -1,0 +1,32 @@
+{
+  "name": "@excelmaster/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false --noEmit"
+  },
+  "dependencies": {
+    "@excelmaster/shared": "1.0.0",
+    "@hookform/resolvers": "3.9.1",
+    "@tanstack/react-query": "5.62.11",
+    "axios": "1.18.1",
+    "lucide-react": "0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-hook-form": "7.54.2",
+    "react-router-dom": "7.18.1",
+    "zod": "3.24.1"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@vitejs/plugin-react": "6.0.3",
+    "autoprefixer": "10.4.20",
+    "postcss": "8.5.16",
+    "tailwindcss": "3.4.17",
+    "vite": "8.1.4"
+  }
+}
