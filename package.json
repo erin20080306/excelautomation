@@ -2,6 +2,7 @@
   "name": "excelmaster-platform",
   "version": "1.0.0",
   "private": true,
+  "engines": { "node": ">=22.12.0" },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -9,6 +10,7 @@
   "scripts": {
     "dev": "concurrently -n web,api,worker -c blue,green,magenta \"npm run dev -w @excelmaster/web\" \"npm run dev -w @excelmaster/api\" \"npm run dev -w @excelmaster/worker\"",
     "build": "npm run build -w @excelmaster/shared && npm run build -w @excelmaster/api && npm run build -w @excelmaster/worker && npm run build -w @excelmaster/web",
+    "build:web": "npm run build -w @excelmaster/shared && npm run build -w @excelmaster/web",
     "typecheck": "npm run build -w @excelmaster/shared && npm run typecheck --workspaces --if-present",
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
     "test": "npm run test:unit && npm run test:parser",
@@ -17,7 +19,7 @@
     "test:watch": "vitest",
     "db:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
     "db:push": "prisma db push --schema apps/api/prisma/schema.prisma",
-    "db:seed": "tsx apps/api/prisma/seed.ts",
+    "db:seed": "tsx --env-file=.env apps/api/prisma/seed.ts",
     "postinstall": "npm run db:generate"
   },
   "devDependencies": {

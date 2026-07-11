@@ -39,7 +39,7 @@ npm run dev
 
 前端為 `http://localhost:5173`，API 為 `http://localhost:4000`，Parser 文件在開發環境為 `http://localhost:8000/docs`。
 
-第一次使用請在登入頁選「立即建立」，自行設定帳號、密碼與工作區；專案沒有寫死帳密或預置 Mock Data。
+第一次使用可在登入頁選「立即建立」，自行設定帳號、密碼與工作區。若需要固定的測試管理者，請在本機 `.env` 設定 `SEED_ADMIN_EMAIL`、`SEED_ADMIN_PASSWORD`、`SEED_ADMIN_NAME`、`SEED_WORKSPACE_NAME`，執行 `npm run db:seed` 後即可登入；帳密不會寫死在前端或提交到 Git。
 
 ## Docker Compose
 
@@ -47,10 +47,23 @@ npm run dev
 cp .env.example .env
 docker compose up -d postgres redis parser
 docker compose run --rm api npx prisma db push --schema apps/api/prisma/schema.prisma
+docker compose run --rm api npm run db:seed
 docker compose up -d api worker web
 ```
 
 開啟 `http://localhost:8080`。正式環境應把 PostgreSQL、Redis 與 S3 換成具備備份、TLS 與高可用能力的受管服務，API、Worker、Parser 部署在支援常駐程序的平台；Vercel 只適合部署前端靜態產物。
+
+## Vercel 前端部署
+
+Vercel 專案的 **Root Directory 必須設為 repository 根目錄 `.`**，不可選 `apps/api`。根目錄的 `vercel.json` 會使用 `npm ci --include=dev` 安裝 TypeScript，並只執行 `npm run build:web`，輸出 `apps/web/dist`。
+
+Vercel 必須設定：
+
+```text
+VITE_API_URL=https://你的常駐-api-domain.example/api
+```
+
+Fastify API、BullMQ Worker、Python Parser、PostgreSQL、Redis 與檔案儲存需部署到支援常駐程序的平台。若 Vercel build log 顯示工作目錄為 `/vercel/path0/apps/api`，代表 Root Directory 仍設錯，需在 Project Settings → Build and Deployment 改回 `.` 後重新部署。
 
 ## 驗證
 
