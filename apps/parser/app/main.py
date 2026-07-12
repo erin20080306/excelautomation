@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
@@ -25,12 +26,18 @@ class ExportRequest(BaseModel):
     dataSets: list[dict] | None = None
 
 
+def require_parser_secret(x_excelmaster_parser_secret: str | None = Header(default=None)) -> None:
+    configured = os.getenv("PARSER_SHARED_SECRET")
+    if configured and (not x_excelmaster_parser_secret or not secrets.compare_digest(configured, x_excelmaster_parser_secret)):
+        raise HTTPException(401, "Parser 驗證失敗")
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/analyze")
+@app.post("/analyze", dependencies=[Depends(require_parser_secret)])
 async def analyze(file: UploadFile = File(...), original_name: str = Form(...)) -> dict:
     suffix = Path(original_name).suffix.lower()
     if suffix not in {".xlsx", ".xlsm", ".xls", ".csv", ".tsv"}:
@@ -52,7 +59,7 @@ async def analyze(file: UploadFile = File(...), original_name: str = Form(...)) 
         Path(temp_path).unlink(missing_ok=True)
 
 
-@app.post("/export")
+@app.post("/export", dependencies=[Depends(require_parser_secret)])
 def export_workbook(payload: ExportRequest):
     temp_dir = tempfile.mkdtemp(prefix="excelmaster-export-")
     file_name = Path(payload.name).stem[:100] + ".xlsx"

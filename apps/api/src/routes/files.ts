@@ -14,6 +14,7 @@ import { enqueueProcessingMessage, enqueueProcessingMessages } from '../lib/queu
 import type { StorageAdapter } from '../lib/storage.js';
 import { assertSafeArchivePath, safeFileName } from '../lib/security.js';
 import { writeAudit } from '../lib/audit.js';
+import { createInlineProcessor } from '../lib/processor.js';
 
 const allowedExtensions = new Set(['.xlsx', '.xlsm', '.xls', '.csv', '.tsv']);
 const allowedMime = new Set([
@@ -85,6 +86,7 @@ async function extractZip(zipPath: string, tempDir: string, maxUncompressedBytes
 
 export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter): Promise<void> {
   app.addHook('preHandler', app.authenticate);
+  const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config) : null;
 
   app.get('/', async (request) => {
     const query = z.object({ q: z.string().trim().optional(), reportType: z.string().optional(), page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
@@ -109,6 +111,9 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
     const accepted: string[] = [];
     const duplicates: string[] = [];
     const rejected: Array<{ name: string; error: string }> = [];
+    const processingErrors: Array<{ sourceFileId: string; error: string }> = [];
+    let uploadedBytes = 0;
+    let candidateCount = 0;
     let projectId: string | undefined;
     let batchName = `批次 ${new Date().toLocaleString('zh-TW', { hour12: false })}`;
     try {
@@ -124,11 +129,17 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
         try {
           await pipeline(part.file, fs.createWriteStream(incomingPath, { flags: 'wx' }));
           if (part.file.truncated) throw new Error('檔案大小超過限制');
+          if (inlineProcessor) {
+            uploadedBytes += (await fsp.stat(incomingPath)).size;
+            if (uploadedBytes > app.config.TRIAL_MAX_TOTAL_MB * 1024 * 1024) throw new Error(`Vercel 試用版單批上傳總量上限為 ${app.config.TRIAL_MAX_TOTAL_MB} MB`);
+          }
           const candidates = path.extname(incomingName).toLowerCase() === '.zip'
             ? await extractZip(incomingPath, tempDir, app.config.MAX_ZIP_UNCOMPRESSED_MB * 1024 * 1024)
             : [{ path: incomingPath, name: incomingName, originalPath: part.filename }];
           for (const candidate of candidates) {
             try {
+              candidateCount += 1;
+              if (inlineProcessor && candidateCount > app.config.TRIAL_MAX_FILES) throw new Error(`Vercel 試用版單批最多處理 ${app.config.TRIAL_MAX_FILES} 份檔案`);
               const result = await persistSourceFile({ workspaceId: request.auth.workspaceId, filePath: candidate.path, originalName: candidate.name, originalPath: candidate.originalPath, storage });
               (result.duplicate ? duplicates : accepted).push(result.id);
             } catch (error) {
@@ -147,12 +158,22 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
       if (accepted.length) {
         processingJob = await prisma.$transaction(async (tx) => {
           const created = await tx.processingJob.create({ data: { workspaceId: request.auth.workspaceId, projectId, name: batchName, totalItems: accepted.length, items: { create: accepted.map((sourceFileId) => ({ sourceFileId })) } }, include: { items: true } });
-          await enqueueProcessingMessages(tx, created.items.map((item) => ({ type: 'analyze-file', processingJobId: created.id, itemId: item.id, maxAttempts: 3 })));
+          if (!inlineProcessor) await enqueueProcessingMessages(tx, created.items.map((item) => ({ type: 'analyze-file', processingJobId: created.id, itemId: item.id, maxAttempts: 3 })));
           return created;
-        });
+        }, { maxWait: 10_000, timeout: 30_000 });
+        if (inlineProcessor) {
+          for (const item of processingJob.items) {
+            try {
+              await inlineProcessor.analyzeItem({ type: 'analyze-file', processingJobId: processingJob.id, itemId: item.id, maxAttempts: 1 });
+            } catch (error) {
+              processingErrors.push({ sourceFileId: item.sourceFileId, error: error instanceof Error ? error.message : '分析失敗' });
+            }
+          }
+          processingJob = await prisma.processingJob.findUnique({ where: { id: processingJob.id }, include: { items: true } });
+        }
       }
       await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'files.upload', entityType: 'ProcessingJob', entityId: processingJob?.id, metadata: { accepted: accepted.length, duplicates: duplicates.length, rejected: rejected.length }, ipAddress: request.ip });
-      return reply.code(202).send({ job: processingJob, accepted: accepted.length, duplicates: duplicates.length, rejected });
+      return reply.code(inlineProcessor ? 201 : 202).send({ job: processingJob, accepted: accepted.length, duplicates: duplicates.length, rejected, processingErrors, processingMode: inlineProcessor ? 'inline' : 'queue' });
     } finally {
       await fsp.rm(tempDir, { recursive: true, force: true });
     }
@@ -166,9 +187,15 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
       const created = await tx.processingJob.create({ data: { workspaceId: request.auth.workspaceId, name: `重新分析：${source.name}`, totalItems: 1, items: { create: { sourceFileId: id } } }, include: { items: true } });
       const item = created.items[0];
       if (!item) throw new Error('無法建立處理項目');
-      await enqueueProcessingMessage(tx, { type: 'analyze-file', processingJobId: created.id, itemId: item.id, maxAttempts: 3 });
+      if (!inlineProcessor) await enqueueProcessingMessage(tx, { type: 'analyze-file', processingJobId: created.id, itemId: item.id, maxAttempts: 3 });
       return created;
-    });
+    }, { maxWait: 10_000, timeout: 30_000 });
+    if (inlineProcessor) {
+      const item = job.items[0];
+      if (!item) throw new Error('無法建立處理項目');
+      await inlineProcessor.analyzeItem({ type: 'analyze-file', processingJobId: job.id, itemId: item.id, maxAttempts: 1 });
+      return reply.code(200).send(await prisma.processingJob.findUniqueOrThrow({ where: { id: job.id }, include: { items: true } }));
+    }
     return reply.code(202).send(job);
   });
 }

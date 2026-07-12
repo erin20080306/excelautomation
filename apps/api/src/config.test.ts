@@ -19,4 +19,17 @@ describe('loadConfig', () => {
   it('parses the S3 path-style switch without treating false as truthy', () => {
     expect(loadConfig({ ...required, S3_FORCE_PATH_STYLE: 'false' }).S3_FORCE_PATH_STYLE).toBe(false);
   });
+
+  it('supports the bounded Vercel inline processing mode', () => {
+    const config = loadConfig({
+      ...required,
+      PROCESSING_MODE: 'inline',
+      TRIAL_MAX_FILES: '5',
+      TRIAL_MAX_TOTAL_MB: '3',
+      TRIAL_MAX_OUTPUT_MB: '4'
+    });
+    expect(config.PROCESSING_MODE).toBe('inline');
+    expect(config.TRIAL_MAX_FILES).toBe(5);
+    expect(config.TRIAL_MAX_TOTAL_MB).toBe(3);
+  });
 });

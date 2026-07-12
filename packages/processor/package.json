@@ -1,17 +1,16 @@
 {
-  "name": "@excelmaster/worker",
+  "name": "@excelmaster/processor",
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1085.0",
-    "@excelmaster/processor": "1.0.0",
     "@excelmaster/shared": "1.0.0",
     "@prisma/client": "6.2.1",
     "axios": "1.18.1",

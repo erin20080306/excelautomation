@@ -9,6 +9,7 @@ COPY apps/api/prisma apps/api/prisma
 COPY apps/worker/package.json apps/worker/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
+COPY packages/processor/package.json packages/processor/package.json
 RUN npm ci
 COPY packages/shared packages/shared
 COPY apps/web apps/web

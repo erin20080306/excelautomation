@@ -5,6 +5,7 @@ import { enqueueProcessingMessage } from '../lib/queue.js';
 import type { StorageAdapter } from '../lib/storage.js';
 import { signDownload, verifyDownload } from '../lib/security.js';
 import { writeAudit } from '../lib/audit.js';
+import { createInlineProcessor } from '../lib/processor.js';
 
 const exportConfig = z.object({
   separateFiles: z.boolean().default(false),
@@ -21,6 +22,7 @@ const exportConfig = z.object({
 });
 
 export async function exportRoutes(app: FastifyInstance, storage: StorageAdapter): Promise<void> {
+  const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config) : null;
   app.addHook('preHandler', async (request) => {
     if ((request.routeOptions.config as unknown as Record<string, unknown>).public) return;
     await app.authenticate(request);
@@ -36,13 +38,17 @@ export async function exportRoutes(app: FastifyInstance, storage: StorageAdapter
     const processingJob = await prisma.processingJob.findFirst({ where: { id: body.processingJobId, workspaceId: request.auth.workspaceId }, include: { items: true } });
     if (!processingJob) throw app.httpErrors.notFound('找不到處理批次');
     if (!['completed', 'awaiting_review'].includes(processingJob.status)) throw app.httpErrors.badRequest('批次尚未完成分析');
-    const exportJob = await prisma.$transaction(async (tx) => {
+    let exportJob = await prisma.$transaction(async (tx) => {
       const created = await tx.exportJob.create({ data: { workspaceId: request.auth.workspaceId, processingJobId: body.processingJobId, name: body.name, config: body.config } });
-      await enqueueProcessingMessage(tx, { type: 'export-workbook', exportJobId: created.id, maxAttempts: 2 });
+      if (!inlineProcessor) await enqueueProcessingMessage(tx, { type: 'export-workbook', exportJobId: created.id, maxAttempts: 2 });
       return created;
-    });
+    }, { maxWait: 10_000, timeout: 30_000 });
+    if (inlineProcessor) {
+      await inlineProcessor.exportWorkbook({ type: 'export-workbook', exportJobId: exportJob.id, maxAttempts: 1 });
+      exportJob = await prisma.exportJob.findUniqueOrThrow({ where: { id: exportJob.id }, include: { files: true } });
+    }
     await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'export.create', entityType: 'ExportJob', entityId: exportJob.id });
-    return reply.code(202).send(exportJob);
+    return reply.code(inlineProcessor ? 201 : 202).send(exportJob);
   });
 
   app.post('/:id/sign', async (request) => {

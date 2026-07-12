@@ -51,33 +51,17 @@ docker compose run --rm api npm run db:seed
 docker compose up -d api worker web
 ```
 
-開啟 `http://localhost:8080`。目前正式部署使用 Vercel Marketplace Neon PostgreSQL；API、Worker、Parser 部署在支援常駐程序的平台，Vercel 同時提供前端與資料庫。
+開啟 `http://localhost:8080`。Docker 下載包保留 API、Worker、Parser 與 PostgreSQL Queue，適合大量檔案與長時間背景工作。
 
-## Vercel 前端部署
+## Vercel 線上試用版
 
-Vercel 專案的 **Root Directory 必須設為 repository 根目錄 `.`**，不可選 `apps/api`。根目錄的 `vercel.json` 會使用 `npm ci --include=dev` 安裝 TypeScript，並只執行 `npm run build:web`，輸出 `apps/web/dist`。
+線上試用版全部使用 Vercel，但拆成三個同平台專案：
 
-Vercel 必須設定：
+- Web：React/Vite 靜態前端。
+- API：Fastify Vercel Function，使用 Neon PostgreSQL 與 database storage。
+- Parser：FastAPI/openpyxl Vercel Function，只接受 API 以共享密鑰呼叫。
 
-```text
-VITE_API_URL=https://你的常駐-api-domain.example/api
-```
-
-Fastify API、Queue Worker 與 Python Parser 需部署到支援常駐程序的平台；PostgreSQL、Queue 與測試檔案儲存由 Vercel Marketplace Neon 提供。若 Vercel build log 顯示工作目錄為 `/vercel/path0/apps/api`，代表 Root Directory 仍設錯，需在 Project Settings → Build and Deployment 改回 `.` 後重新部署。
-
-目前部署架構使用 Vercel 託管 React 前端與 Neon PostgreSQL，Render 託管 API、Worker、Parser。逐步操作、環境變數及驗收方式請見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
-
-## 常駐後端（Render Blueprint）
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/erin20080306/excelautomation/tree/codex/excelmaster-platform)
-
-Blueprint 會把 Fastify API、PostgreSQL Queue Worker 與 Python Parser 放在同一個常駐 Web Service。建立時需輸入：
-
-- `DATABASE_URL`：Vercel Marketplace Neon 提供的 Postgres 連線字串。
-- `SEED_ADMIN_EMAIL`：測試管理者 Email。
-- `SEED_ADMIN_PASSWORD`：至少 10 個字元的測試密碼。
-
-部署啟動時會自動執行 Prisma `db push`、建立或更新測試管理者，然後同時啟動 API、Worker 與 Parser。測試部署使用 PostgreSQL-backed Storage Adapter；正式大量檔案環境仍建議切換至 S3 相容儲存。
+Vercel Functions 的 request body 上限為 4.5 MB，因此前後端將試用版限制為單批最多 5 份、總上傳量 3 MB、輸出 4 MB。分析與匯出在同一次請求內完成；大量批次、排程、重試與背景 Queue 由下載包提供。逐步部署與環境變數請見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
 ## 驗證
 

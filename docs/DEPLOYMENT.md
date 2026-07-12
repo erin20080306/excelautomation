@@ -1,99 +1,99 @@
-# ExcelMaster 正式部署：Vercel Neon + Render
+# ExcelMaster 全 Vercel 試用部署
 
-目前架構：
+## 架構
 
-- **Vercel**：React/Vite 靜態前端，以及 Marketplace Neon PostgreSQL。
-- **Neon PostgreSQL**：應用資料、背景工作 Queue 與測試部署的檔案物件。
-- **Render**：同一個 Docker Web Service 內執行 Fastify API、Queue Worker 與 Python Parser。
+- `excelautomation-api`：React/Vite Web。
+- `excelautomation-backend`：Fastify API Vercel Function。
+- `excelautomation-parser`：FastAPI/openpyxl Vercel Function。
+- Vercel Marketplace Neon：PostgreSQL、試用檔案物件與應用資料。
 
-Neon Marketplace 資源目前位於 AWS `us-east-1`，因此 Blueprint 將 Render 設在 Virginia，降低 API、Worker 與資料庫之間的延遲。
+三個執行專案都在 Vercel。API 與 Parser 分開部署是因為它們使用不同 runtime；Parser 以 `PARSER_SHARED_SECRET` 驗證 API 呼叫。
 
-Queue 使用 repository 內建的標準 PostgreSQL 資料表與 `FOR UPDATE SKIP LOCKED`，不需要 `pgmq`、Redis 或 BullMQ。API 建立工作時會在同一個 database transaction 寫入業務資料與 Queue 訊息。
+## 試用版限制
 
-## 1. 在 Vercel 建立 Neon 資料庫
+Vercel Function request/response payload 有 4.5 MB 限制，Hobby Fluid Compute 最長執行 300 秒。因此線上版明確限制：
 
-1. 開啟 Vercel 專案 `excelautomation-api`。
-2. 前往 Storage / Marketplace，加入 Neon Postgres。
-3. 將 Neon 連接至 Production；需要 Preview 或 Development 時再另外勾選。
-4. Vercel 會建立秘密環境變數 `DATABASE_URL`。不要把連線字串提交到 Git 或貼進聊天室。
-5. 後端是常駐服務，建議提供 Neon pooled connection string；Prisma 6 可直接使用。
+- 單批最多 5 份來源檔案。
+- multipart request 內來源檔案總量最多 3 MB。
+- 匯出檔案最多 4 MB。
+- 單次分析或匯出必須在 5 分鐘內完成。
+- 不執行常駐 Worker、排程監控或 100 份背景批次。
 
-第一次透過 CLI 安裝 Neon 時，Vercel 會要求帳號擁有者接受 Marketplace 法律條款。這一步必須由帳號擁有者本人完成。
+完整背景 Queue、重試、大量批次與 Docker 環境保留在下載包。
 
-## 2. 部署 Render Backend
+## 1. Neon
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/erin20080306/excelautomation/tree/codex/excelmaster-platform)
+Web 專案已透過 Vercel Marketplace 連接 Neon，Production 環境包含 `DATABASE_URL` 與 `DATABASE_URL_UNPOOLED`。Schema 使用：
 
-Blueprint 只建立一個 `excelautomation-backend` Web Service。建立時輸入：
+```bash
+node --env-file=.env.production ./node_modules/prisma/build/index.js db push --schema apps/api/prisma/schema.prisma
+```
+
+秘密連線字串不可提交到 Git。
+
+## 2. Parser 專案
+
+Parser 的 Vercel Root Directory 是 `apps/parser`，設定檔為 `apps/parser/vercel.json`。
+
+Production 環境變數：
 
 ```text
-DATABASE_URL=<Vercel Neon 的完整 pooled connection string>
-SEED_ADMIN_EMAIL=<測試管理者 Email>
-SEED_ADMIN_PASSWORD=<至少 10 個字元的測試密碼>
+NODE_ENV=production
+MAX_FILE_SIZE_MB=3
+PARSER_SHARED_SECRET=<至少 32 字元亂數>
 ```
 
-Render 會自動產生 `JWT_SECRET` 與 `FIELD_ENCRYPTION_KEY`。`WEB_ORIGIN` 已限制為：
+部署後 `/health` 應回傳 `{"status":"ok"}`。未提供正確共享密鑰呼叫 `/analyze` 或 `/export` 必須回傳 401。
+
+## 3. API 專案
+
+API 使用 repository 根目錄與 `vercel.api.json`：
+
+```bash
+vercel deploy --prod --local-config vercel.api.json
+```
+
+Production 環境變數：
 
 ```text
-https://excelautomation-api-seven.vercel.app
+NODE_ENV=production
+DATABASE_URL=<Neon pooled URL>
+JWT_SECRET=<至少 32 字元亂數>
+FIELD_ENCRYPTION_KEY=<至少 32 字元亂數>
+WEB_ORIGIN=https://excelautomation-api-seven.vercel.app
+PARSER_URL=https://<parser-project>.vercel.app
+PARSER_SHARED_SECRET=<與 Parser 相同>
+PROCESSING_MODE=inline
+STORAGE_DRIVER=database
+MAX_FILE_SIZE_MB=3
+MAX_ZIP_UNCOMPRESSED_MB=12
+TRIAL_MAX_FILES=5
+TRIAL_MAX_TOTAL_MB=3
+TRIAL_MAX_OUTPUT_MB=4
 ```
 
-Docker 啟動流程會依序：
+API 與 Neon 同樣放在 `iad1`，減少資料庫往返延遲。`/health` 應回傳 `processingMode: "inline"`。
 
-1. 執行 Prisma `db push`，建立或更新 Neon schema。
-2. 依環境變數建立或更新測試管理者，角色為 Workspace `OWNER`。
-3. 啟動 API（port 10000）、Worker 與只在容器內監聽的 Parser（port 8000）。
+## 4. Web 專案
 
-## 3. 檢查後端
-
-Render 部署完成後開啟：
+Web 專案使用 repository 根目錄與 `vercel.json`。Production 環境變數：
 
 ```text
-https://<render-domain>/health
+VITE_API_URL=https://<api-project>.vercel.app/api
 ```
 
-應回傳：
-
-```json
-{"status":"ok","service":"api"}
-```
-
-Logs 應顯示 database schema、測試管理者 seed 完成，以及 `worker.ready`。Queue 的預設 visibility timeout 為 30 分鐘；長任務執行時 Worker 會持續延長 visibility timeout。
-
-## 4. 連接 Vercel 前端
-
-在 Vercel 專案 Settings → Environment Variables 新增：
-
-```text
-VITE_API_URL=https://<render-domain>/api
-```
-
-套用至 Production 並重新部署。Vercel 專案 Root Directory 必須是 repository 根目錄 `.`，不能設成 `apps/api`。
+Root Directory 必須為 `.`，Build Command 為 `npm run build:web`，Output Directory 為 `apps/web/dist`。
 
 ## 5. 驗收
 
-1. 開啟登入頁，以設定的測試管理者登入。
-2. 上傳小型 `.xlsx`。
-3. 確認分析狀態完成，且人工確認項目可讀取。
-4. 建立匯出並下載 `.xlsx`。
-5. 在 Neon 檢查 `QueueMessage`：成功訊息會刪除，超過重試次數的訊息會保留並標記 `archivedAt`。
-6. 在 Neon 檢查 `StoredObject` 已保存來源與匯出檔案。
+1. API `/health` 與 Parser `/health` 回傳 200。
+2. 使用測試管理者登入。
+3. 上傳小於 3 MB 的 `.xlsx`，同一請求完成分析。
+4. 分類、表頭、欄位對應與信心度可讀取。
+5. 建立小於 4 MB 的匯出，取得簽名下載連結並下載有效 `.xlsx`。
+6. 超過 5 份或 3 MB 時，前端與 API 都必須拒絕並顯示試用限制。
+7. Parser 缺少共享密鑰時必須拒絕分析與匯出。
 
-## Queue 行為
+## 下載包
 
-- `QueueMessage` 只使用標準 PostgreSQL 功能，適用於 Neon，不依賴額外 extension。
-- Worker 以 `FOR UPDATE SKIP LOCKED` 原子領取可見訊息，可安全支援多個 Worker。
-- 長任務會更新 `visibleAt`，避免另一個 Worker 重複領取。
-- 成功訊息刪除；暫時失敗使用 exponential backoff 重試。
-- 超過 `maxAttempts` 或 payload 無效的訊息會封存。
-- `ProcessingJobItem` 與 `ExportJob` 提供額外的冪等保護。
-
-## 儲存邊界
-
-目前測試部署設定 `STORAGE_DRIVER=database`，因此檔案也存於 Neon。這能避免免費容器重啟造成檔案遺失，適合功能驗證與小型資料。正式大量檔案應改用私有 S3 相容 bucket，並將 `STORAGE_DRIVER` 改成 `s3`。
-
-## 安全注意事項
-
-- `DATABASE_URL`、測試密碼、JWT 與加密金鑰只能放在平台的秘密環境變數。
-- 測試管理者完成驗收後應立即更換強密碼，或清除 seed 環境變數。
-- 正式公開前應評估關閉公開註冊、設定邀請制與監控 Neon/Render 使用量。
+頁首「下載完整版」連結指向目前 GitHub 分支 ZIP。下載後可透過 `docker compose` 啟動完整 API、Worker、Parser 與 PostgreSQL Queue；正式大量檔案建議將 Storage Adapter 改成私有 S3 相容儲存。
