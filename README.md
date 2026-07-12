@@ -1,13 +1,13 @@
 # ExcelMaster
 
-多格式 Excel 智慧整合與自動化平台。這個 repository 是可執行的 monorepo，包含 React 前端、Fastify API、Supabase Queues Worker、FastAPI/openpyxl 解析服務、PostgreSQL 與 Storage Adapter。
+多格式 Excel 智慧整合與自動化平台。這個 repository 是可執行的 monorepo，包含 React 前端、Fastify API、PostgreSQL Queue Worker、FastAPI/openpyxl 解析服務、PostgreSQL 與 Storage Adapter。
 
 ## 核心流程
 
 1. 使用者註冊時建立 Workspace，密碼使用 bcrypt 雜湊。
 2. 瀏覽器可一次上傳多檔、整個資料夾或 ZIP；API 驗證大小、副檔名、MIME、ZIP 解壓上限與安全路徑。
-3. API 以 SHA-256 在 Workspace 內去重，並以同一個 PostgreSQL transaction 建立 ProcessingJob、ProcessingJobItem 與 Supabase Queue 訊息。
-4. Worker 從 Supabase `pgmq` Queue 拉取工作，呼叫 Python Parser 分析工作表結構、表頭、資料區、格式、公式、分類與欄位映射。
+3. API 以 SHA-256 在 Workspace 內去重，並以同一個 PostgreSQL transaction 建立 ProcessingJob、ProcessingJobItem 與 Queue 訊息。
+4. Worker 從 PostgreSQL Queue 拉取工作，呼叫 Python Parser 分析工作表結構、表頭、資料區、格式、公式、分類與欄位映射。
 5. 低信心度分類、表頭或欄位映射建立 ReviewTask，不會直接混入自動整合。
 6. 整合專案可保存 Append、Join、Lookup、Group、Split、Transform 與組合鍵去重管線。
 7. 輸出由背景 Worker 產生真正的 `.xlsx`，包含總覽、欄位映射、異常、分類資料與處理紀錄；下載網址使用短效 JWT 簽名。
@@ -17,14 +17,14 @@
 ```text
 apps/web       React + TypeScript + Vite + Tailwind + TanStack Query
 apps/api       Fastify + Prisma + PostgreSQL + REST API
-apps/worker    Supabase Queues 背景分析與匯出 Worker
+apps/worker    PostgreSQL Queue 背景分析與匯出 Worker
 apps/parser    FastAPI + openpyxl + pandas Excel 解析/匯出服務
 packages/shared 共享型別、Zod Schema 與整合引擎
 ```
 
 ## 本機啟動
 
-需求：Node.js 22、Python 3.12，以及支援 `pgmq` 的 PostgreSQL（正式環境建議 Supabase）。
+需求：Node.js 22、Python 3.12 與標準 PostgreSQL 14 以上版本。
 
 ```bash
 cp .env.example .env
@@ -51,7 +51,7 @@ docker compose run --rm api npm run db:seed
 docker compose up -d api worker web
 ```
 
-開啟 `http://localhost:8080`。正式環境建議使用 Supabase PostgreSQL、Queues 與 Storage；API、Worker、Parser 部署在支援常駐程序的平台，Vercel 只部署前端靜態產物。
+開啟 `http://localhost:8080`。目前正式部署使用 Vercel Marketplace Neon PostgreSQL；API、Worker、Parser 部署在支援常駐程序的平台，Vercel 同時提供前端與資料庫。
 
 ## Vercel 前端部署
 
@@ -63,15 +63,15 @@ Vercel 必須設定：
 VITE_API_URL=https://你的常駐-api-domain.example/api
 ```
 
-Fastify API、Queue Worker 與 Python Parser 需部署到支援常駐程序的平台；PostgreSQL、Queue 與檔案儲存由 Supabase 提供。若 Vercel build log 顯示工作目錄為 `/vercel/path0/apps/api`，代表 Root Directory 仍設錯，需在 Project Settings → Build and Deployment 改回 `.` 後重新部署。
+Fastify API、Queue Worker 與 Python Parser 需部署到支援常駐程序的平台；PostgreSQL、Queue 與測試檔案儲存由 Vercel Marketplace Neon 提供。若 Vercel build log 顯示工作目錄為 `/vercel/path0/apps/api`，代表 Root Directory 仍設錯，需在 Project Settings → Build and Deployment 改回 `.` 後重新部署。
 
-完整正式環境建議使用 Supabase 託管 PostgreSQL、Queues 與 S3 相容 Storage，Railway 託管 API、Worker、Parser，並保留 Vercel 作為前端。逐步操作、環境變數及驗收方式請見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
+目前部署架構使用 Vercel 託管 React 前端與 Neon PostgreSQL，Render 託管 API、Worker、Parser。逐步操作、環境變數及驗收方式請見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
 ## 常駐後端（Render Blueprint）
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/erin20080306/excelautomation/tree/codex/excelmaster-platform)
 
-Blueprint 會建立一個免費 Render Key Value，並把 Fastify API、BullMQ Worker 與 Python Parser 放在同一個常駐 Web Service。建立時需輸入：
+Blueprint 會把 Fastify API、PostgreSQL Queue Worker 與 Python Parser 放在同一個常駐 Web Service。建立時需輸入：
 
 - `DATABASE_URL`：Vercel Marketplace Neon 提供的 Postgres 連線字串。
 - `SEED_ADMIN_EMAIL`：測試管理者 Email。
@@ -128,7 +128,7 @@ Python 測試包含非第一列表頭、多層表頭、合併儲存格、隱藏�
 
 ## 外部憑證
 
-核心本機上傳流程不需第三方 OAuth 憑證。正式部署需要 Supabase `DATABASE_URL`、`JWT_SECRET`、`FIELD_ENCRYPTION_KEY`，以及 Storage S3 endpoint、bucket、region 與 access key。Google Drive/Gmail 使用 Google OAuth client，OneDrive/SharePoint/Outlook 使用 Microsoft OAuth client。
+核心本機上傳流程不需第三方 OAuth 憑證。目前部署需要 Vercel Neon `DATABASE_URL`、`JWT_SECRET` 與 `FIELD_ENCRYPTION_KEY`。若正式大量檔案改用 S3，另需 endpoint、bucket、region 與 access key。Google Drive/Gmail 使用 Google OAuth client，OneDrive/SharePoint/Outlook 使用 Microsoft OAuth client。
 
 ## 已知邊界
 

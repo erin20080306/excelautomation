@@ -1,12 +1,4 @@
 services:
-  - type: keyvalue
-    name: excelautomation-redis
-    plan: free
-    region: singapore
-    ipAllowList: []
-    maxmemoryPolicy: noeviction
-    persistenceMode: off
-
   - type: web
     name: excelautomation-backend
     runtime: docker
@@ -24,11 +16,6 @@ services:
         value: 10000
       - key: DATABASE_URL
         sync: false
-      - key: REDIS_URL
-        fromService:
-          name: excelautomation-redis
-          type: keyvalue
-          property: connectionString
       - key: PARSER_URL
         value: http://127.0.0.1:8000
       - key: STORAGE_DRIVER
@@ -46,6 +33,12 @@ services:
       - key: MAX_ZIP_UNCOMPRESSED_MB
         value: 500
       - key: WORKER_CONCURRENCY
+        value: 2
+      - key: QUEUE_VISIBILITY_TIMEOUT_SECONDS
+        value: 1800
+      - key: QUEUE_POLL_INTERVAL_MS
+        value: 1000
+      - key: QUEUE_RETRY_BASE_SECONDS
         value: 2
       - key: SEED_ADMIN_EMAIL
         sync: false

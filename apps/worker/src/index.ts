@@ -8,7 +8,7 @@ import FormData from 'form-data';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import {
   analysisSchema,
-  pgmqRetryDelaySeconds,
+  queueRetryDelaySeconds,
   processingQueueMessageSchema,
   runIntegration,
   type DataSet,
@@ -23,7 +23,7 @@ import {
   deleteProcessingMessage,
   ensureProcessingQueue,
   readProcessingMessages,
-  type PgmqMessageRecord
+  type DatabaseQueueMessageRecord
 } from './queue.js';
 
 const prisma = new PrismaClient();
@@ -36,9 +36,9 @@ function positiveInteger(value: string | undefined, fallback: number): number {
 }
 
 const concurrency = positiveInteger(process.env.WORKER_CONCURRENCY, 3);
-const visibilityTimeoutSeconds = positiveInteger(process.env.PGMQ_VISIBILITY_TIMEOUT_SECONDS, 1800);
-const pollIntervalMs = positiveInteger(process.env.PGMQ_POLL_INTERVAL_MS, 1000);
-const retryBaseSeconds = positiveInteger(process.env.PGMQ_RETRY_BASE_SECONDS, 2);
+const visibilityTimeoutSeconds = positiveInteger(process.env.QUEUE_VISIBILITY_TIMEOUT_SECONDS, 1800);
+const pollIntervalMs = positiveInteger(process.env.QUEUE_POLL_INTERVAL_MS, 1000);
+const retryBaseSeconds = positiveInteger(process.env.QUEUE_RETRY_BASE_SECONDS, 2);
 
 async function updateStage(itemId: string, status: any, progress: number): Promise<void> {
   await prisma.processingJobItem.update({ where: { id: itemId }, data: { status, progress, startedAt: progress > 0 ? new Date() : undefined } });
@@ -228,7 +228,7 @@ async function withVisibilityHeartbeat(messageId: bigint, task: () => Promise<vo
   if (taskError) throw taskError;
 }
 
-async function processMessage(record: PgmqMessageRecord): Promise<void> {
+async function processMessage(record: DatabaseQueueMessageRecord): Promise<void> {
   let message: ProcessingQueueMessage;
   try {
     message = processingQueueMessageSchema.parse(record.message);
@@ -253,7 +253,7 @@ async function processMessage(record: PgmqMessageRecord): Promise<void> {
       console.error(JSON.stringify({ event: 'queue.failed', messageId: record.msg_id.toString(), type: message.type, attempts, message: errorMessage }));
       return;
     }
-    const delaySeconds = pgmqRetryDelaySeconds(attempts, retryBaseSeconds);
+    const delaySeconds = queueRetryDelaySeconds(attempts, retryBaseSeconds);
     await delayProcessingMessage(prisma, record.msg_id, delaySeconds);
     console.warn(JSON.stringify({ event: 'queue.retry', messageId: record.msg_id.toString(), type: message.type, attempts, delaySeconds, message: errorMessage }));
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { pgmqRetryDelaySeconds, processingQueueMessageSchema } from './index.js';
+import { processingQueueMessageSchema, queueRetryDelaySeconds } from './index.js';
 
-describe('Supabase queue messages', () => {
+describe('PostgreSQL queue messages', () => {
   it('applies the analyze retry default', () => {
     const message = processingQueueMessageSchema.parse({
       type: 'analyze-file',
@@ -16,6 +16,6 @@ describe('Supabase queue messages', () => {
   });
 
   it('uses capped exponential retry delays', () => {
-    expect([1, 2, 3, 10].map((attempt) => pgmqRetryDelaySeconds(attempt))).toEqual([2, 4, 8, 300]);
+    expect([1, 2, 3, 10].map((attempt) => queueRetryDelaySeconds(attempt))).toEqual([2, 4, 8, 300]);
   });
 });

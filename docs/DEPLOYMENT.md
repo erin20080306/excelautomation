@@ -1,182 +1,97 @@
-# ExcelMaster 正式部署：Supabase + Railway + Vercel
+# ExcelMaster 正式部署：Vercel Neon + Render
 
-正式架構：
+目前架構：
 
-- **Supabase**：PostgreSQL、`pgmq` Queues、S3 相容 Storage。
-- **Railway**：Fastify API、Queue Worker、Python Parser 三個常駐服務。
-- **Vercel**：React/Vite 靜態前端。
+- **Vercel**：React/Vite 靜態前端，以及 Marketplace Neon PostgreSQL。
+- **Neon PostgreSQL**：應用資料、背景工作 Queue 與測試部署的檔案物件。
+- **Render**：同一個 Docker Web Service 內執行 Fastify API、Queue Worker 與 Python Parser。
 
-Queue 直接透過 Prisma/PostgreSQL 呼叫 `pgmq`，不需要 Supabase Data API、`service_role` key、Redis 或 BullMQ。
+Queue 使用 repository 內建的標準 PostgreSQL 資料表與 `FOR UPDATE SKIP LOCKED`，不需要 `pgmq`、Redis 或 BullMQ。API 建立工作時會在同一個 database transaction 寫入業務資料與 Queue 訊息。
 
-## 1. 建立 Supabase Project
+## 1. 在 Vercel 建立 Neon 資料庫
 
-1. 登入 Supabase，選 **New project**。
-2. Project 名稱填 `excelmaster-production`。
-3. Region 選離使用者與 Railway 最近的區域，台灣建議 Singapore。
-4. 產生高強度 Database Password，存進自己的密碼管理器，不要提交到 Git 或傳到聊天室。
-5. Project 建立完成後，按頂部 **Connect**。
-6. 選 **Session pooler**、port `5432` 的連線字串。API 與 Worker 都是常駐服務，使用 Session pooler；不要選 port `6543` 的 transaction pooler。
-7. 將 `[YOUR-PASSWORD]` 換成 URL encoded 後的資料庫密碼，這個完整字串就是後續的 `DATABASE_URL`。
+1. 開啟 Vercel 專案 `excelautomation-api`。
+2. 前往 Storage / Marketplace，加入 Neon Postgres。
+3. 將 Neon 連接至 Production；需要 Preview 或 Development 時再另外勾選。
+4. Vercel 會建立秘密環境變數 `DATABASE_URL`。不要把連線字串提交到 Git 或貼進聊天室。
+5. 後端是常駐服務，建議提供 Neon pooled connection string；Prisma 6 可直接使用。
 
-## 2. 啟用 Supabase Queues
+第一次透過 CLI 安裝 Neon 時，Vercel 會要求帳號擁有者接受 Marketplace 法律條款。這一步必須由帳號擁有者本人完成。
 
-1. Dashboard → Integrations → Queues，啟用 `pgmq` extension。
-2. Queues → **Create queue**。
-3. Queue 名稱必須填：
+## 2. 部署 Render Backend
 
-```text
-excel_processing
-```
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/erin20080306/excelautomation/tree/codex/excelmaster-platform)
 
-4. Queue Type 選 **Basic / Durable Queue**，不要選 Unlogged Queue。
-5. 保留 RLS；本系統直接使用 PostgreSQL 連線，不需要把 Queue 暴露到 PostgREST/Data API。
-
-也可以在 SQL Editor 執行 repository 的 `supabase/queue.sql`。API 與 Worker 啟動時會再次確認 extension 與 Queue 存在，因此初始化是冪等的。
-
-## 3. 建立 Supabase Storage
-
-1. Storage → **New bucket**。
-2. Bucket 名稱填：
+Blueprint 只建立一個 `excelautomation-backend` Web Service。建立時輸入：
 
 ```text
-excelmaster-files
+DATABASE_URL=<Vercel Neon 的完整 pooled connection string>
+SEED_ADMIN_EMAIL=<測試管理者 Email>
+SEED_ADMIN_PASSWORD=<至少 10 個字元的測試密碼>
 ```
 
-3. 設為 Private bucket。
-4. Project Settings → Storage → S3 Access Keys，建立 server-side S3 access key。
-5. 保存以下五個值：Endpoint、Region、Bucket、Access Key ID、Secret Access Key。
-6. Supabase S3 必須使用 `S3_FORCE_PATH_STYLE=true`。
-
-S3 access key 能繞過 Storage RLS，只能放在 API 與 Worker 的秘密環境變數中。
-
-## 4. 建立 Railway Project
-
-1. Railway → **New Project → Empty Project**。
-2. 名稱填 `excelmaster-compute`，region 選 Singapore。
-3. 設定 Hard Usage Limit。
-4. 不需要在 Railway 建立 PostgreSQL、Redis 或 Bucket。
-
-## 5. 部署 Parser
-
-1. Create → GitHub Repo → `erin20080306/excelautomation`。
-2. Branch 選 `codex/excelmaster-platform`，服務名稱改為 `parser`。
-3. Settings → Config as Code → Config File Path：`/railway.parser.json`。
-4. Root Directory 保持 `/`。
-5. Variables → Raw Editor：
+Render 會自動產生 `JWT_SECRET` 與 `FIELD_ENCRYPTION_KEY`。`WEB_ORIGIN` 已限制為：
 
 ```text
-NODE_ENV=production
-MAX_FILE_SIZE_MB=50
+https://excelautomation-api-seven.vercel.app
 ```
 
-6. 不要產生 public domain。API 與 Worker 只透過 Railway private network 呼叫 Parser。
+Docker 啟動流程會依序：
 
-## 6. 部署 API
+1. 執行 Prisma `db push`，建立或更新 Neon schema。
+2. 依環境變數建立或更新測試管理者，角色為 Workspace `OWNER`。
+3. 啟動 API（port 10000）、Worker 與只在容器內監聽的 Parser（port 8000）。
 
-1. 再次從同一個 repository/branch 建立服務，名稱改為 `api`。
-2. Config File Path：`/railway.api.json`；Root Directory 保持 `/`。
-3. Settings → Networking → **Generate Domain**，記下 API HTTPS 網址。
-4. 在自己的電腦產生秘密值：
+## 3. 檢查後端
 
-```bash
-openssl rand -base64 48
-openssl rand -hex 32
-```
-
-第一行是 `JWT_SECRET`，第二行是 `FIELD_ENCRYPTION_KEY`。
-
-5. Variables → Raw Editor；把 `<...>` 全部換成自己的值：
+Render 部署完成後開啟：
 
 ```text
-NODE_ENV=production
-DATABASE_URL=<Supabase Session pooler 5432 完整字串>
-JWT_SECRET=<openssl base64 輸出>
-FIELD_ENCRYPTION_KEY=<openssl hex 輸出>
-WEB_ORIGIN=https://excelautomation-api-seven.vercel.app
-PARSER_URL=http://${{parser.RAILWAY_PRIVATE_DOMAIN}}:8000
-STORAGE_DRIVER=s3
-S3_ENDPOINT=<Supabase direct storage S3 endpoint>
-S3_REGION=<Supabase Storage region>
-S3_BUCKET=excelmaster-files
-S3_ACCESS_KEY_ID=<Supabase S3 access key id>
-S3_SECRET_ACCESS_KEY=<Supabase S3 secret access key>
-S3_FORCE_PATH_STYLE=true
-MAX_FILE_SIZE_MB=50
-MAX_ZIP_UNCOMPRESSED_MB=500
+https://<render-domain>/health
 ```
 
-`railway.api.json` 會在部署前執行 Prisma schema 同步與 `queue:init`。
-
-## 7. 部署 Worker
-
-1. 再次從同一個 repository/branch 建立服務，名稱改為 `worker`。
-2. Config File Path：`/railway.worker.json`；Root Directory 保持 `/`。
-3. 不要產生 public domain。
-4. Variables → Raw Editor：
-
-```text
-NODE_ENV=production
-DATABASE_URL=<與 API 完全相同的 Supabase Session pooler 字串>
-PARSER_URL=http://${{parser.RAILWAY_PRIVATE_DOMAIN}}:8000
-STORAGE_DRIVER=s3
-S3_ENDPOINT=<Supabase direct storage S3 endpoint>
-S3_REGION=<Supabase Storage region>
-S3_BUCKET=excelmaster-files
-S3_ACCESS_KEY_ID=<Supabase S3 access key id>
-S3_SECRET_ACCESS_KEY=<Supabase S3 secret access key>
-S3_FORCE_PATH_STYLE=true
-WORKER_CONCURRENCY=3
-PGMQ_VISIBILITY_TIMEOUT_SECONDS=1800
-PGMQ_POLL_INTERVAL_MS=1000
-PGMQ_RETRY_BASE_SECONDS=2
-```
-
-Visibility timeout 必須大於單一 Excel 分析或匯出的最長預期時間。預設 30 分鐘；若大型檔案可能超過 30 分鐘，應提高此值。
-
-## 8. 檢查後端
-
-1. API Pre-deploy Logs 應顯示 Prisma schema 與 Queue 初始化成功。
-2. 開啟 `https://<API 網域>/health`，應回傳：
+應回傳：
 
 ```json
 {"status":"ok","service":"api"}
 ```
 
-3. Worker logs 應顯示 `worker.ready`，queue 為 `excel_processing`。
-4. Parser logs 應顯示 Uvicorn 正在 port 8000 執行。
+Logs 應顯示 database schema、測試管理者 seed 完成，以及 `worker.ready`。Queue 的預設 visibility timeout 為 30 分鐘；長任務執行時 Worker 會持續延長 visibility timeout。
 
-## 9. 設定 Vercel
+## 4. 連接 Vercel 前端
 
-1. Vercel 專案 `excelautomation-api` → Settings → Environment Variables。
-2. 新增：
+在 Vercel 專案 Settings → Environment Variables 新增：
 
 ```text
-VITE_API_URL=https://<Railway API 網域>/api
+VITE_API_URL=https://<render-domain>/api
 ```
 
-3. 套用至 Production，儲存後 Redeploy。
-4. Root Directory 保持 `.`，Node.js 使用 22.x。
+套用至 Production 並重新部署。Vercel 專案 Root Directory 必須是 repository 根目錄 `.`，不能設成 `apps/api`。
 
-## 10. 存取模式與驗收
+## 5. 驗收
 
-- 公開 SaaS：關閉 Vercel Deployment Protection；任何人都能看到公開註冊頁。
-- 內部系統：保留保護，並在公開 API 前加入邀請制或停用公開註冊。
-
-驗收順序：
-
-1. 建立第一個 Workspace。
+1. 開啟登入頁，以設定的測試管理者登入。
 2. 上傳小型 `.xlsx`。
-3. 在 Supabase Queues 觀察訊息被 Worker 讀取並完成刪除。
-4. 檢查分析結果與人工確認項目。
-5. 建立匯出並下載 `.xlsx`，確認 Supabase Storage 有新物件。
-6. 暫停 Worker 測試一次：訊息應在 visibility timeout 後重新出現；啟動 Worker 後可繼續處理。
+3. 確認分析狀態完成，且人工確認項目可讀取。
+4. 建立匯出並下載 `.xlsx`。
+5. 在 Neon 檢查 `QueueMessage`：成功訊息會刪除，超過重試次數的訊息會保留並標記 `archivedAt`。
+6. 在 Neon 檢查 `StoredObject` 已保存來源與匯出檔案。
 
 ## Queue 行為
 
-- API 的應用資料與 Queue 訊息在同一個 PostgreSQL transaction 內提交。
-- Worker 使用 pull-based `pgmq.read` 與 visibility timeout。
-- 長任務執行期間會定期延長 visibility timeout，避免另一個 Worker 重複領取。
-- 成功訊息永久刪除。
-- 暫時失敗會以 exponential backoff 重試。
-- 超過 `maxAttempts` 或 payload 無效的訊息會封存至 Queue archive table。
-- ProcessingJobItem 與 ExportJob 提供冪等保護，避免 Worker crash 後重複完成結果。
+- `QueueMessage` 只使用標準 PostgreSQL 功能，適用於 Neon，不依賴額外 extension。
+- Worker 以 `FOR UPDATE SKIP LOCKED` 原子領取可見訊息，可安全支援多個 Worker。
+- 長任務會更新 `visibleAt`，避免另一個 Worker 重複領取。
+- 成功訊息刪除；暫時失敗使用 exponential backoff 重試。
+- 超過 `maxAttempts` 或 payload 無效的訊息會封存。
+- `ProcessingJobItem` 與 `ExportJob` 提供額外的冪等保護。
+
+## 儲存邊界
+
+目前測試部署設定 `STORAGE_DRIVER=database`，因此檔案也存於 Neon。這能避免免費容器重啟造成檔案遺失，適合功能驗證與小型資料。正式大量檔案應改用私有 S3 相容 bucket，並將 `STORAGE_DRIVER` 改成 `s3`。
+
+## 安全注意事項
+
+- `DATABASE_URL`、測試密碼、JWT 與加密金鑰只能放在平台的秘密環境變數。
+- 測試管理者完成驗收後應立即更換強密碼，或清除 seed 環境變數。
+- 正式公開前應評估關閉公開註冊、設定邀請制與監控 Neon/Render 使用量。

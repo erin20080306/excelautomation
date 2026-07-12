@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: ghcr.io/pgmq/pg18-pgmq:v1.10.0
+    image: postgres:17-alpine
     environment:
       POSTGRES_USER: excelmaster
       POSTGRES_PASSWORD: excelmaster

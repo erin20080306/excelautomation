@@ -33,7 +33,7 @@ export const processingQueueMessageSchema = z.discriminatedUnion('type', [
 
 export type ProcessingQueueMessage = z.infer<typeof processingQueueMessageSchema>;
 
-export function pgmqRetryDelaySeconds(readCount: number, baseSeconds = 2, maximumSeconds = 300): number {
+export function queueRetryDelaySeconds(readCount: number, baseSeconds = 2, maximumSeconds = 300): number {
   const safeReadCount = Math.max(1, Math.floor(readCount));
   const safeBase = Math.max(1, Math.floor(baseSeconds));
   const safeMaximum = Math.max(safeBase, Math.floor(maximumSeconds));

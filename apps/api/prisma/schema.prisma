@@ -108,6 +108,19 @@ model StoredObject {
   @@index([workspaceId, createdAt])
 }
 
+model QueueMessage {
+  id         BigInt    @id @default(autoincrement())
+  queue      String
+  payload    Json
+  readCount  Int       @default(0)
+  visibleAt  DateTime  @default(now())
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([queue, archivedAt, visibleAt, id])
+}
+
 model WorkspaceMember {
   id          String @id @default(cuid())
   workspaceId String
