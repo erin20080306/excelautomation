@@ -14,13 +14,14 @@ import { resourceRoutes } from './routes/resources.js';
 import { fileRoutes } from './routes/files.js';
 import { exportRoutes } from './routes/exports.js';
 
-export async function buildApp(): Promise<FastifyInstance> {
+export async function buildApp(existingApp?: FastifyInstance): Promise<FastifyInstance> {
   const config = loadConfig();
   if (config.PROCESSING_MODE === 'queue') await ensureProcessingQueue();
   const storage = createStorage(config);
-  const app = Fastify({
+  const app = existingApp ?? Fastify({
     logger: { level: config.NODE_ENV === 'development' ? 'info' : 'warn', redact: ['req.headers.authorization', 'req.headers.cookie', 'body.password', 'body.credential'] },
     bodyLimit: config.MAX_FILE_SIZE_MB * 1024 * 1024 + 1024 * 1024,
+    maxParamLength: 512,
     trustProxy: true
   });
 
@@ -30,7 +31,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
   await app.register(rateLimit, { max: 120, timeWindow: '1 minute', ban: 3 });
   await app.register(multipart, {
-    limits: { fileSize: config.MAX_FILE_SIZE_MB * 1024 * 1024, files: config.PROCESSING_MODE === 'inline' ? config.TRIAL_MAX_FILES : 1000, fields: 20, parts: config.PROCESSING_MODE === 'inline' ? config.TRIAL_MAX_FILES + 20 : 1020 },
+    limits: { fileSize: config.MAX_FILE_SIZE_MB * 1024 * 1024, files: 1000, fields: 20, parts: 1020 },
     throwFileSizeLimit: false,
     preservePath: true
   });

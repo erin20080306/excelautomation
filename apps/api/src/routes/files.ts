@@ -15,6 +15,7 @@ import type { StorageAdapter } from '../lib/storage.js';
 import { assertSafeArchivePath, safeFileName } from '../lib/security.js';
 import { writeAudit } from '../lib/audit.js';
 import { createInlineProcessor } from '../lib/processor.js';
+import { hasUnlimitedAccess } from '../lib/access.js';
 
 const allowedExtensions = new Set(['.xlsx', '.xlsm', '.xls', '.csv', '.tsv']);
 const allowedMime = new Set([
@@ -86,7 +87,6 @@ async function extractZip(zipPath: string, tempDir: string, maxUncompressedBytes
 
 export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter): Promise<void> {
   app.addHook('preHandler', app.authenticate);
-  const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config) : null;
 
   app.get('/', async (request) => {
     const query = z.object({ q: z.string().trim().optional(), reportType: z.string().optional(), page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
@@ -107,6 +107,8 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
 
   app.post('/upload', async (request, reply) => {
     if (request.auth.role === 'VIEWER') throw app.httpErrors.forbidden('檢視者無法上傳檔案');
+    const unlimited = hasUnlimitedAccess(request.auth.role);
+    const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config, { unlimited }) : null;
     const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'excelmaster-upload-'));
     const accepted: string[] = [];
     const duplicates: string[] = [];
@@ -129,7 +131,7 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
         try {
           await pipeline(part.file, fs.createWriteStream(incomingPath, { flags: 'wx' }));
           if (part.file.truncated) throw new Error('檔案大小超過限制');
-          if (inlineProcessor) {
+          if (inlineProcessor && !unlimited) {
             uploadedBytes += (await fsp.stat(incomingPath)).size;
             if (uploadedBytes > app.config.TRIAL_MAX_TOTAL_MB * 1024 * 1024) throw new Error(`Vercel 試用版單批上傳總量上限為 ${app.config.TRIAL_MAX_TOTAL_MB} MB`);
           }
@@ -139,7 +141,7 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
           for (const candidate of candidates) {
             try {
               candidateCount += 1;
-              if (inlineProcessor && candidateCount > app.config.TRIAL_MAX_FILES) throw new Error(`Vercel 試用版單批最多處理 ${app.config.TRIAL_MAX_FILES} 份檔案`);
+              if (inlineProcessor && !unlimited && candidateCount > app.config.TRIAL_MAX_FILES) throw new Error(`Vercel 試用版單批最多處理 ${app.config.TRIAL_MAX_FILES} 份檔案`);
               const result = await persistSourceFile({ workspaceId: request.auth.workspaceId, filePath: candidate.path, originalName: candidate.name, originalPath: candidate.originalPath, storage });
               (result.duplicate ? duplicates : accepted).push(result.id);
             } catch (error) {
@@ -180,6 +182,8 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
   });
 
   app.post('/:id/reanalyze', async (request, reply) => {
+    const unlimited = hasUnlimitedAccess(request.auth.role);
+    const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config, { unlimited }) : null;
     const { id } = z.object({ id: z.string().cuid() }).parse(request.params);
     const source = await prisma.sourceFile.findFirst({ where: { id, workspaceId: request.auth.workspaceId } });
     if (!source) throw app.httpErrors.notFound('找不到來源檔案');

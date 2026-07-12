@@ -3,11 +3,5 @@
   "framework": "fastify",
   "installCommand": "npm ci --include=dev",
   "buildCommand": "npm run build:api:vercel",
-  "regions": ["iad1"],
-  "functions": {
-    "server.mjs": {
-      "maxDuration": 300,
-      "includeFiles": ["apps/api/prisma/**"]
-    }
-  }
+  "regions": ["iad1"]
 }

@@ -6,6 +6,7 @@ import type { StorageAdapter } from '../lib/storage.js';
 import { signDownload, verifyDownload } from '../lib/security.js';
 import { writeAudit } from '../lib/audit.js';
 import { createInlineProcessor } from '../lib/processor.js';
+import { hasUnlimitedAccess } from '../lib/access.js';
 
 const exportConfig = z.object({
   separateFiles: z.boolean().default(false),
@@ -22,7 +23,6 @@ const exportConfig = z.object({
 });
 
 export async function exportRoutes(app: FastifyInstance, storage: StorageAdapter): Promise<void> {
-  const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config) : null;
   app.addHook('preHandler', async (request) => {
     if ((request.routeOptions.config as unknown as Record<string, unknown>).public) return;
     await app.authenticate(request);
@@ -34,6 +34,8 @@ export async function exportRoutes(app: FastifyInstance, storage: StorageAdapter
   });
 
   app.post('/', async (request, reply) => {
+    const unlimited = hasUnlimitedAccess(request.auth.role);
+    const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config, { unlimited }) : null;
     const body = z.object({ processingJobId: z.string().cuid(), name: z.string().trim().min(2).max(120), config: exportConfig }).parse(request.body);
     const processingJob = await prisma.processingJob.findFirst({ where: { id: body.processingJobId, workspaceId: request.auth.workspaceId }, include: { items: true } });
     if (!processingJob) throw app.httpErrors.notFound('找不到處理批次');

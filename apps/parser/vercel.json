@@ -1,6 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "fastapi",
+  "installCommand": "python -m pip install -r requirements.txt",
+  "buildCommand": "python -m compileall app",
   "functions": {
     "app/main.py": {
       "maxDuration": 300,
