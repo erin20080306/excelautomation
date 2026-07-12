@@ -1,0 +1,17 @@
+.git/
+.env
+.env.local
+.env.development.local
+.env.production.local
+node_modules/
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+apps/parser/.venv/
+**/__pycache__/
+.pytest_cache/
+coverage/
+storage/
+test-results/
+playwright-report/
+scripts/node_modules

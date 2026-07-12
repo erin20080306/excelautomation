@@ -91,6 +91,21 @@ model Workspace {
   auditLogs   AuditLog[]
   notifications Notification[]
   settings    AppSetting[]
+  storedObjects StoredObject[]
+}
+
+model StoredObject {
+  id          String   @id @default(cuid())
+  workspaceId String
+  key         String
+  data        Bytes
+  contentType String
+  size        BigInt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  @@unique([workspaceId, key])
+  @@index([workspaceId, createdAt])
 }
 
 model WorkspaceMember {

@@ -3,7 +3,9 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import type { Readable } from 'node:stream';
+import { Readable as NodeReadable } from 'node:stream';
 import type { AppConfig } from '../config.js';
+import { prisma } from './prisma.js';
 
 export interface StorageAdapter {
   put(key: string, source: string | Buffer, contentType: string): Promise<void>;
@@ -59,7 +61,32 @@ export class S3StorageAdapter implements StorageAdapter {
   }
 }
 
+function parseDatabaseKey(key: string): { workspaceId: string; key: string } {
+  const [workspaceId] = key.split('/');
+  if (!workspaceId || workspaceId.length > 100) throw new Error('資料庫儲存鍵缺少工作區');
+  return { workspaceId, key };
+}
+
+export class DatabaseStorageAdapter implements StorageAdapter {
+  async put(key: string, source: string | Buffer, contentType: string): Promise<void> {
+    const identity = parseDatabaseKey(key);
+    const data = typeof source === 'string' ? await fsp.readFile(source) : source;
+    await prisma.storedObject.upsert({
+      where: { workspaceId_key: identity },
+      create: { ...identity, data, contentType, size: data.length },
+      update: { data, contentType, size: data.length }
+    });
+  }
+
+  async getStream(key: string): Promise<Readable> {
+    const object = await prisma.storedObject.findUnique({ where: { workspaceId_key: parseDatabaseKey(key) } });
+    if (!object) throw new Error('找不到資料庫儲存物件');
+    return NodeReadable.from(Buffer.from(object.data));
+  }
+}
+
 export function createStorage(config: AppConfig): StorageAdapter {
+  if (config.STORAGE_DRIVER === 'database') return new DatabaseStorageAdapter();
   if (config.STORAGE_DRIVER === 's3') {
     if (!config.S3_BUCKET) throw new Error('S3 儲存需要 S3_BUCKET');
     return new S3StorageAdapter(config.S3_BUCKET, config);

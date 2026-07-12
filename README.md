@@ -67,6 +67,18 @@ Fastify API、Queue Worker 與 Python Parser 需部署到支援常駐程序的�
 
 完整正式環境建議使用 Supabase 託管 PostgreSQL、Queues 與 S3 相容 Storage，Railway 託管 API、Worker、Parser，並保留 Vercel 作為前端。逐步操作、環境變數及驗收方式請見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
+## 常駐後端（Render Blueprint）
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/erin20080306/excelautomation/tree/codex/excelmaster-platform)
+
+Blueprint 會建立一個免費 Render Key Value，並把 Fastify API、BullMQ Worker 與 Python Parser 放在同一個常駐 Web Service。建立時需輸入：
+
+- `DATABASE_URL`：Vercel Marketplace Neon 提供的 Postgres 連線字串。
+- `SEED_ADMIN_EMAIL`：測試管理者 Email。
+- `SEED_ADMIN_PASSWORD`：至少 10 個字元的測試密碼。
+
+部署啟動時會自動執行 Prisma `db push`、建立或更新測試管理者，然後同時啟動 API、Worker 與 Parser。測試部署使用 PostgreSQL-backed Storage Adapter；正式大量檔案環境仍建議切換至 S3 相容儲存。
+
 ## 驗證
 
 ```bash

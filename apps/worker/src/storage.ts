@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { pipeline } from 'node:stream/promises';
+import type { PrismaClient } from '@prisma/client';
 
 export interface WorkerStorage {
   download(key: string, target: string): Promise<void>;
@@ -41,7 +42,34 @@ class S3WorkerStorage implements WorkerStorage {
   }
 }
 
-export function createWorkerStorage(): WorkerStorage {
+function parseDatabaseKey(key: string): { workspaceId: string; key: string } {
+  const [workspaceId] = key.split('/');
+  if (!workspaceId || workspaceId.length > 100) throw new Error('資料庫儲存鍵缺少工作區');
+  return { workspaceId, key };
+}
+
+class DatabaseWorkerStorage implements WorkerStorage {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async download(key: string, target: string): Promise<void> {
+    const object = await this.prisma.storedObject.findUnique({ where: { workspaceId_key: parseDatabaseKey(key) } });
+    if (!object) throw new Error('找不到資料庫儲存物件');
+    await fsp.writeFile(target, Buffer.from(object.data));
+  }
+
+  async upload(key: string, source: string, contentType: string): Promise<void> {
+    const identity = parseDatabaseKey(key);
+    const data = await fsp.readFile(source);
+    await this.prisma.storedObject.upsert({
+      where: { workspaceId_key: identity },
+      create: { ...identity, data, contentType, size: data.length },
+      update: { data, contentType, size: data.length }
+    });
+  }
+}
+
+export function createWorkerStorage(prisma: PrismaClient): WorkerStorage {
+  if (process.env.STORAGE_DRIVER === 'database') return new DatabaseWorkerStorage(prisma);
   if (process.env.STORAGE_DRIVER === 's3') {
     if (!process.env.S3_BUCKET) throw new Error('S3_BUCKET 未設定');
     return new S3WorkerStorage(process.env.S3_BUCKET);

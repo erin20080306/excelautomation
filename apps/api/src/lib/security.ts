@@ -20,7 +20,9 @@ export function sha256(data: Buffer): string {
 }
 
 export function encryptSecret(value: string, hexKey: string): string {
-  const key = Buffer.from(hexKey, 'hex');
+  const key = /^[a-fA-F0-9]{64}$/.test(hexKey)
+    ? Buffer.from(hexKey, 'hex')
+    : crypto.createHash('sha256').update(hexKey, 'utf8').digest();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);

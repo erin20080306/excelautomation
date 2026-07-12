@@ -27,7 +27,7 @@ import {
 } from './queue.js';
 
 const prisma = new PrismaClient();
-const storage = createWorkerStorage();
+const storage = createWorkerStorage(prisma);
 const parserUrl = process.env.PARSER_URL ?? 'http://localhost:8000';
 
 function positiveInteger(value: string | undefined, fallback: number): number {
