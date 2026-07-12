@@ -10,6 +10,7 @@ import { QueuePage } from './pages/QueuePage';
 import { ReviewsPage } from './pages/ReviewsPage';
 import { ReportTypesPage, RulesPage, SchemasPage, SourcesPage, TemplatesPage } from './pages/CatalogPages';
 import { AuditPage, ExportsPage, SettingsPage } from './pages/OperationsPages';
+import { AdminPage, BillingPage } from './pages/AdminPages';
 
 function ProtectedLayout() {
   const { session } = useAuth();
@@ -35,6 +36,8 @@ export function App() {
       <Route path="/exports" element={<ExportsPage />} />
       <Route path="/audit" element={<AuditPage />} />
       <Route path="/settings" element={<SettingsPage />} />
+      <Route path="/billing" element={<BillingPage />} />
+      <Route path="/admin" element={<AdminPage />} />
     </Route>
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes>;

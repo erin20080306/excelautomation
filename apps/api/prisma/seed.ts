@@ -13,8 +13,8 @@ try {
       include: { memberships: { include: { workspace: true }, orderBy: { workspace: { createdAt: 'asc' } } } }
     });
     const user = existing
-      ? await tx.user.update({ where: { id: existing.id }, data: { name: config.SEED_ADMIN_NAME, passwordHash } })
-      : await tx.user.create({ data: { email: config.SEED_ADMIN_EMAIL, name: config.SEED_ADMIN_NAME, passwordHash } });
+      ? await tx.user.update({ where: { id: existing.id }, data: { name: config.SEED_ADMIN_NAME, passwordHash, platformRole: 'SUPERADMIN', status: 'ACTIVE', emailVerifiedAt: existing.emailVerifiedAt ?? new Date(), failedLoginCount: 0, lockedUntil: null } })
+      : await tx.user.create({ data: { email: config.SEED_ADMIN_EMAIL, name: config.SEED_ADMIN_NAME, passwordHash, platformRole: 'SUPERADMIN', status: 'ACTIVE', emailVerifiedAt: new Date() } });
 
     const existingMembership = existing?.memberships[0];
     if (existingMembership) {
@@ -30,7 +30,7 @@ try {
     await tx.auditLog.create({ data: { workspaceId: workspace.id, userId: user.id, action: 'seed.test-owner.create', metadata: { source: 'environment' } } });
     return { user, workspace };
   }, { maxWait: 10_000, timeout: 120_000 });
-  console.log(`測試管理者已就緒：${result.user.email} / ${result.workspace.name} / OWNER`);
+  console.log(`平台管理者已就緒：${result.user.email} / ${result.workspace.name} / SUPERADMIN`);
 } finally {
   await prisma.$disconnect();
 }

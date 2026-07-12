@@ -14,6 +14,37 @@ enum WorkspaceRole {
   VIEWER
 }
 
+enum PlatformRole {
+  USER
+  SUPERADMIN
+}
+
+enum AccountStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+}
+
+enum WorkspacePlan {
+  TRIAL
+  STARTER
+  PROFESSIONAL
+  BUSINESS
+  ENTERPRISE
+}
+
+enum ReleasePlatform {
+  WINDOWS
+  MACOS
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  EXPIRED
+  REFUNDED
+}
+
 enum SourceKind {
   UPLOAD
   FOLDER
@@ -58,52 +89,156 @@ enum ExportStatus {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  memberships WorkspaceMember[]
-  auditLogs    AuditLog[]
-  templatesCreated ParsingTemplate[] @relation("TemplateCreator")
+  id                 String            @id @default(cuid())
+  email              String            @unique
+  passwordHash       String
+  name               String
+  platformRole       PlatformRole      @default(USER)
+  status             AccountStatus     @default(PENDING_VERIFICATION)
+  emailVerifiedAt    DateTime?
+  failedLoginCount   Int               @default(0)
+  lockedUntil        DateTime?
+  mfaSecretEncrypted String?
+  mfaEnabledAt       DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  memberships        WorkspaceMember[]
+  auditLogs          AuditLog[]
+  templatesCreated   ParsingTemplate[] @relation("TemplateCreator")
+  authTokens         AuthToken[]
+  packageDownloads   PackageDownload[]
+  platformAudits     PlatformAudit[]   @relation("PlatformAuditActor")
+  paymentOrders      PaymentOrder[]
 }
 
 model Workspace {
-  id          String   @id @default(cuid())
+  id               String               @id @default(cuid())
+  name             String
+  plan             WorkspacePlan        @default(TRIAL)
+  suspendedAt      DateTime?
+  fileQuota        Int                  @default(5)
+  totalMbQuota     Float                @default(3)
+  outputMbQuota    Float                @default(4)
+  downloadQuota    Int                  @default(0)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  members          WorkspaceMember[]
+  dataSources      DataSource[]
+  automationRules  AutomationRule[]
+  projects         IntegrationProject[]
+  reportTypes      ReportType[]
+  schemas          DynamicSchema[]
+  mappingRules     MappingRule[]
+  cleaningRules    CleaningRule[]
+  mergeRules       MergeRule[]
+  sourceFiles      SourceFile[]
+  processingJobs   ProcessingJob[]
+  reviewTasks      ReviewTask[]
+  templates        ParsingTemplate[]
+  exportJobs       ExportJob[]
+  auditLogs        AuditLog[]
+  notifications    Notification[]
+  settings         AppSetting[]
+  storedObjects    StoredObject[]
+  packageDownloads PackageDownload[]
+  paymentOrders    PaymentOrder[]
+}
+
+model AuthToken {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, expiresAt])
+}
+
+model ReleaseArtifact {
+  id          String            @id @default(cuid())
+  version     String            @unique
   name        String
+  contentType String            @default("application/zip")
+  data        Bytes
+  size        BigInt
+  sha256      String
+  platform    ReleasePlatform
+  minimumPlan WorkspacePlan
+  active      Boolean           @default(true)
+  publishedAt DateTime          @default(now())
+  createdAt   DateTime          @default(now())
+  downloads   PackageDownload[]
+}
+
+model PaymentOrder {
+  id                String        @id @default(cuid())
+  userId            String
+  workspaceId       String
+  plan              WorkspacePlan
+  amountTwd         Int
+  status            PaymentStatus @default(PENDING)
+  provider          String        @default("stripe")
+  providerSessionId String?       @unique
+  providerPaymentId String?
+  paidAt            DateTime?
+  expiresAt         DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace         Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([status, createdAt])
+}
+
+model PackageDownload {
+  id          String          @id @default(cuid())
+  releaseId   String
+  userId      String
+  workspaceId String
+  tokenHash   String          @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  requestedAt DateTime        @default(now())
+  ipAddress   String?
+  userAgent   String?
+  release     ReleaseArtifact @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, releaseId, requestedAt])
+  @@index([workspaceId, requestedAt])
+}
+
+model PlatformAudit {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  action      String
+  entityType  String?
+  entityId    String?
+  metadata    Json     @default("{}")
+  ipAddress   String?
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  members     WorkspaceMember[]
-  dataSources DataSource[]
-  automationRules AutomationRule[]
-  projects    IntegrationProject[]
-  reportTypes ReportType[]
-  schemas     DynamicSchema[]
-  mappingRules MappingRule[]
-  cleaningRules CleaningRule[]
-  mergeRules  MergeRule[]
-  sourceFiles SourceFile[]
-  processingJobs ProcessingJob[]
-  reviewTasks ReviewTask[]
-  templates   ParsingTemplate[]
-  exportJobs  ExportJob[]
-  auditLogs   AuditLog[]
-  notifications Notification[]
-  settings    AppSetting[]
-  storedObjects StoredObject[]
+  actor       User?    @relation("PlatformAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 model StoredObject {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   key         String
   data        Bytes
   contentType String
   size        BigInt
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([workspaceId, key])
   @@index([workspaceId, createdAt])
 }
@@ -122,404 +257,431 @@ model QueueMessage {
 }
 
 model WorkspaceMember {
-  id          String @id @default(cuid())
+  id          String        @id @default(cuid())
   workspaceId String
   userId      String
   role        WorkspaceRole @default(EDITOR)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([workspaceId, userId])
   @@index([userId])
 }
 
 model DataSource {
-  id          String @id @default(cuid())
-  workspaceId String
-  name        String
-  kind        SourceKind
-  config      Json @default("{}")
+  id                  String           @id @default(cuid())
+  workspaceId         String
+  name                String
+  kind                SourceKind
+  config              Json             @default("{}")
   encryptedCredential String?
-  enabled     Boolean @default(true)
-  lastSyncedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  automationRules AutomationRule[]
-  sourceFiles SourceFile[]
+  enabled             Boolean          @default(true)
+  lastSyncedAt        DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  workspace           Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  automationRules     AutomationRule[]
+  sourceFiles         SourceFile[]
+
   @@index([workspaceId, kind])
 }
 
 model AutomationRule {
-  id          String @id @default(cuid())
-  workspaceId String
+  id           String              @id @default(cuid())
+  workspaceId  String
   dataSourceId String
-  projectId   String?
-  name        String
-  cron        String
-  filePattern String?
-  config      Json @default("{}")
-  enabled     Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  dataSource  DataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
-  project     IntegrationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectId    String?
+  name         String
+  cron         String
+  filePattern  String?
+  config       Json                @default("{}")
+  enabled      Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  workspace    Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  dataSource   DataSource          @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  project      IntegrationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
   @@index([workspaceId, enabled])
 }
 
 model IntegrationProject {
-  id          String @id @default(cuid())
-  workspaceId String
-  name        String
-  description String?
-  reportTypeKey String?
-  schemaId    String?
-  mode        String @default("append")
-  config      Json @default("{}")
-  active      Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  schema      DynamicSchema? @relation(fields: [schemaId], references: [id], onDelete: SetNull)
-  jobs        ProcessingJob[]
+  id              String           @id @default(cuid())
+  workspaceId     String
+  name            String
+  description     String?
+  reportTypeKey   String?
+  schemaId        String?
+  mode            String           @default("append")
+  config          Json             @default("{}")
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  schema          DynamicSchema?   @relation(fields: [schemaId], references: [id], onDelete: SetNull)
+  jobs            ProcessingJob[]
   automationRules AutomationRule[]
-  mergeRules  MergeRule[]
+  mergeRules      MergeRule[]
+
   @@index([workspaceId, updatedAt])
 }
 
 model ReportType {
-  id          String @id @default(cuid())
+  id          String            @id @default(cuid())
   workspaceId String
   key         String
   name        String
   keywords    Json
-  enabled     Boolean @default(true)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  enabled     Boolean           @default(true)
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   schemas     DynamicSchema[]
   templates   ParsingTemplate[]
+
   @@unique([workspaceId, key])
 }
 
 model DynamicSchema {
-  id          String @id @default(cuid())
-  workspaceId String
+  id           String               @id @default(cuid())
+  workspaceId  String
   reportTypeId String?
-  name        String
-  version     Int @default(1)
-  active      Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  reportType  ReportType? @relation(fields: [reportTypeId], references: [id], onDelete: SetNull)
-  fields      SchemaField[]
-  projects    IntegrationProject[]
+  name         String
+  version      Int                  @default(1)
+  active       Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  reportType   ReportType?          @relation(fields: [reportTypeId], references: [id], onDelete: SetNull)
+  fields       SchemaField[]
+  projects     IntegrationProject[]
+
   @@index([workspaceId, active])
 }
 
 model SchemaField {
-  id          String @id @default(cuid())
-  schemaId    String
-  key         String
-  name        String
-  type        String
-  required    Boolean @default(false)
-  uniqueKey   Boolean @default(false)
-  position    Int
+  id           String        @id @default(cuid())
+  schemaId     String
+  key          String
+  name         String
+  type         String
+  required     Boolean       @default(false)
+  uniqueKey    Boolean       @default(false)
+  position     Int
   defaultValue String?
-  transform   Json @default("{}")
-  validation  Json @default("{}")
-  formula     String?
-  schema      DynamicSchema @relation(fields: [schemaId], references: [id], onDelete: Cascade)
-  aliases     FieldAlias[]
+  transform    Json          @default("{}")
+  validation   Json          @default("{}")
+  formula      String?
+  schema       DynamicSchema @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+  aliases      FieldAlias[]
+
   @@unique([schemaId, key])
   @@index([schemaId, position])
 }
 
 model FieldAlias {
-  id          String @id @default(cuid())
-  fieldId     String
-  alias       String
-  normalized  String
-  field       SchemaField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  id         String      @id @default(cuid())
+  fieldId    String
+  alias      String
+  normalized String
+  field      SchemaField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
   @@unique([fieldId, normalized])
 }
 
 model MappingRule {
-  id          String @id @default(cuid())
-  workspaceId String
-  sourcePattern String
+  id             String    @id @default(cuid())
+  workspaceId    String
+  sourcePattern  String
   targetFieldKey String
-  reportTypeKey String?
-  confidence  Float @default(1)
-  active      Boolean @default(true)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  reportTypeKey  String?
+  confidence     Float     @default(1)
+  active         Boolean   @default(true)
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, reportTypeKey])
 }
 
 model CleaningRule {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   name        String
   fieldKey    String?
   type        String
   config      Json
   position    Int
-  active      Boolean @default(true)
+  active      Boolean   @default(true)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, active])
 }
 
 model MergeRule {
-  id          String @id @default(cuid())
+  id          String              @id @default(cuid())
   workspaceId String
   projectId   String?
   name        String
   mode        String
   config      Json
-  position    Int @default(0)
-  active      Boolean @default(true)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  position    Int                 @default(0)
+  active      Boolean             @default(true)
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project     IntegrationProject? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, projectId])
 }
 
 model SourceFile {
-  id          String @id @default(cuid())
-  workspaceId String
-  dataSourceId String?
-  name        String
-  originalPath String?
-  mimeType    String
-  extension   String
-  size        BigInt
-  sha256      String
-  storageKey  String
-  status      JobStatus @default(queued)
+  id            String              @id @default(cuid())
+  workspaceId   String
+  dataSourceId  String?
+  name          String
+  originalPath  String?
+  mimeType      String
+  extension     String
+  size          BigInt
+  sha256        String
+  storageKey    String
+  status        JobStatus           @default(queued)
   reportTypeKey String?
-  confidence  Float?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  dataSource  DataSource? @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
-  versions    SourceFileVersion[]
-  sheets      SourceSheet[]
-  analyses    AnalysisResult[]
-  jobItems    ProcessingJobItem[]
+  confidence    Float?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  workspace     Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  dataSource    DataSource?         @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
+  versions      SourceFileVersion[]
+  sheets        SourceSheet[]
+  analyses      AnalysisResult[]
+  jobItems      ProcessingJobItem[]
+
   @@unique([workspaceId, sha256])
   @@index([workspaceId, createdAt])
 }
 
 model SourceFileVersion {
-  id          String @id @default(cuid())
+  id           String     @id @default(cuid())
   sourceFileId String
-  version     Int
-  size        BigInt
-  sha256      String
-  storageKey  String
-  createdAt   DateTime @default(now())
-  sourceFile  SourceFile @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+  version      Int
+  size         BigInt
+  sha256       String
+  storageKey   String
+  createdAt    DateTime   @default(now())
+  sourceFile   SourceFile @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+
   @@unique([sourceFileId, version])
 }
 
 model SourceSheet {
-  id          String @id @default(cuid())
+  id           String           @id @default(cuid())
   sourceFileId String
-  name        String
-  position    Int
-  maxRow      Int
-  maxColumn   Int
-  hidden      Boolean @default(false)
-  metadata    Json @default("{}")
-  sourceFile  SourceFile @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
-  regions     DetectedRegion[]
-  fields      DetectedField[]
+  name         String
+  position     Int
+  maxRow       Int
+  maxColumn    Int
+  hidden       Boolean          @default(false)
+  metadata     Json             @default("{}")
+  sourceFile   SourceFile       @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+  regions      DetectedRegion[]
+  fields       DetectedField[]
+
   @@unique([sourceFileId, position])
 }
 
 model AnalysisResult {
-  id          String @id @default(cuid())
-  sourceFileId String
-  version     Int
-  result      Json
-  confidence  Float
+  id             String     @id @default(cuid())
+  sourceFileId   String
+  version        Int
+  result         Json
+  confidence     Float
   requiresReview Boolean
-  createdAt   DateTime @default(now())
-  sourceFile  SourceFile @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+  createdAt      DateTime   @default(now())
+  sourceFile     SourceFile @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+
   @@unique([sourceFileId, version])
 }
 
 model DetectedRegion {
-  id          String @id @default(cuid())
+  id            String      @id @default(cuid())
   sourceSheetId String
-  type        String
-  startRow    Int
-  endRow      Int
-  startColumn Int
-  endColumn   Int
-  confidence  Float
-  sourceSheet SourceSheet @relation(fields: [sourceSheetId], references: [id], onDelete: Cascade)
+  type          String
+  startRow      Int
+  endRow        Int
+  startColumn   Int
+  endColumn     Int
+  confidence    Float
+  sourceSheet   SourceSheet @relation(fields: [sourceSheetId], references: [id], onDelete: Cascade)
+
   @@index([sourceSheetId, type])
 }
 
 model DetectedField {
-  id          String @id @default(cuid())
-  sourceSheetId String
-  sourceName  String
+  id             String      @id @default(cuid())
+  sourceSheetId  String
+  sourceName     String
   normalizedName String
-  columnIndex Int
-  targetKey   String?
-  dataType    String?
-  confidence  Float
-  evidence    Json @default("{}")
-  sourceSheet SourceSheet @relation(fields: [sourceSheetId], references: [id], onDelete: Cascade)
+  columnIndex    Int
+  targetKey      String?
+  dataType       String?
+  confidence     Float
+  evidence       Json        @default("{}")
+  sourceSheet    SourceSheet @relation(fields: [sourceSheetId], references: [id], onDelete: Cascade)
+
   @@index([sourceSheetId, columnIndex])
 }
 
 model ProcessingJob {
-  id          String @id @default(cuid())
-  workspaceId String
-  projectId   String?
-  name        String
-  status      JobStatus @default(queued)
-  progress    Int @default(0)
-  totalItems  Int @default(0)
-  completedItems Int @default(0)
-  failedItems Int @default(0)
-  config      Json @default("{}")
-  error       String?
-  startedAt   DateTime?
-  completedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project     IntegrationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  items       ProcessingJobItem[]
-  exports     ExportJob[]
+  id             String              @id @default(cuid())
+  workspaceId    String
+  projectId      String?
+  name           String
+  status         JobStatus           @default(queued)
+  progress       Int                 @default(0)
+  totalItems     Int                 @default(0)
+  completedItems Int                 @default(0)
+  failedItems    Int                 @default(0)
+  config         Json                @default("{}")
+  error          String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  workspace      Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project        IntegrationProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  items          ProcessingJobItem[]
+  exports        ExportJob[]
+
   @@index([workspaceId, createdAt])
 }
 
 model ProcessingJobItem {
-  id          String @id @default(cuid())
-  jobId       String
+  id           String        @id @default(cuid())
+  jobId        String
   sourceFileId String
-  status      JobStatus @default(queued)
-  progress    Int @default(0)
-  error       String?
-  startedAt   DateTime?
-  completedAt DateTime?
-  job         ProcessingJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  sourceFile  SourceFile @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+  status       JobStatus     @default(queued)
+  progress     Int           @default(0)
+  error        String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  job          ProcessingJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  sourceFile   SourceFile    @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+
   @@unique([jobId, sourceFileId])
   @@index([status])
 }
 
 model ReviewTask {
-  id          String @id @default(cuid())
-  workspaceId String
+  id           String       @id @default(cuid())
+  workspaceId  String
   sourceFileId String?
-  type        String
-  title       String
-  payload     Json
-  status      ReviewStatus @default(OPEN)
-  resolution  Json?
-  createdAt   DateTime @default(now())
-  resolvedAt  DateTime?
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  type         String
+  title        String
+  payload      Json
+  status       ReviewStatus @default(OPEN)
+  resolution   Json?
+  createdAt    DateTime     @default(now())
+  resolvedAt   DateTime?
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, status, createdAt])
 }
 
 model ParsingTemplate {
-  id          String @id @default(cuid())
-  workspaceId String
-  reportTypeId String?
-  name        String
-  active      Boolean @default(true)
-  currentVersion Int @default(1)
-  usageCount  Int @default(0)
-  successCount Int @default(0)
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  reportType  ReportType? @relation(fields: [reportTypeId], references: [id], onDelete: SetNull)
-  createdBy   User @relation("TemplateCreator", fields: [createdById], references: [id])
-  versions    ParsingTemplateVersion[]
+  id             String                   @id @default(cuid())
+  workspaceId    String
+  reportTypeId   String?
+  name           String
+  active         Boolean                  @default(true)
+  currentVersion Int                      @default(1)
+  usageCount     Int                      @default(0)
+  successCount   Int                      @default(0)
+  createdById    String
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  workspace      Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  reportType     ReportType?              @relation(fields: [reportTypeId], references: [id], onDelete: SetNull)
+  createdBy      User                     @relation("TemplateCreator", fields: [createdById], references: [id])
+  versions       ParsingTemplateVersion[]
+
   @@index([workspaceId, active])
 }
 
 model ParsingTemplateVersion {
-  id          String @id @default(cuid())
-  templateId  String
-  version     Int
-  config      Json
-  createdAt   DateTime @default(now())
-  template    ParsingTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  id         String          @id @default(cuid())
+  templateId String
+  version    Int
+  config     Json
+  createdAt  DateTime        @default(now())
+  template   ParsingTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
   @@unique([templateId, version])
 }
 
 model ExportJob {
-  id          String @id @default(cuid())
-  workspaceId String
+  id              String         @id @default(cuid())
+  workspaceId     String
   processingJobId String?
-  name        String
-  status      ExportStatus @default(QUEUED)
-  config      Json
-  error       String?
-  createdAt   DateTime @default(now())
-  completedAt DateTime?
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  processingJob ProcessingJob? @relation(fields: [processingJobId], references: [id], onDelete: SetNull)
-  files       ExportFile[]
+  name            String
+  status          ExportStatus   @default(QUEUED)
+  config          Json
+  error           String?
+  createdAt       DateTime       @default(now())
+  completedAt     DateTime?
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  processingJob   ProcessingJob? @relation(fields: [processingJobId], references: [id], onDelete: SetNull)
+  files           ExportFile[]
+
   @@index([workspaceId, createdAt])
 }
 
 model ExportFile {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   exportJobId String
   name        String
   storageKey  String
   mimeType    String
   size        BigInt
   sha256      String
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   exportJob   ExportJob @relation(fields: [exportJobId], references: [id], onDelete: Cascade)
+
   @@index([exportJobId])
 }
 
 model AuditLog {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   userId      String?
   action      String
   entityType  String?
   entityId    String?
-  metadata    Json @default("{}")
+  metadata    Json      @default("{}")
   ipAddress   String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user        User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   @@index([workspaceId, createdAt])
 }
 
 model Notification {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   type        String
   title       String
   message     String
   readAt      DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, readAt])
 }
 
 model AppSetting {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   key         String
   value       Json
-  encrypted   Boolean @default(false)
-  updatedAt   DateTime @updatedAt
+  encrypted   Boolean   @default(false)
+  updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([workspaceId, key])
 }

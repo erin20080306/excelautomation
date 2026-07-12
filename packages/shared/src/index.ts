@@ -69,8 +69,12 @@ export interface ApiList<T> { items: T[]; total: number }
 
 export interface UserSession {
   token: string;
-  user: { id: string; email: string; name: string };
-  workspace: { id: string; name: string; role: string };
+  user: { id: string; email: string; name: string; platformRole: 'USER' | 'SUPERADMIN'; mfaEnabled: boolean };
+  workspace: {
+    id: string; name: string; role: string;
+    plan: 'TRIAL' | 'STARTER' | 'PROFESSIONAL' | 'BUSINESS' | 'ENTERPRISE';
+    fileQuota: number; totalMbQuota: number; outputMbQuota: number; downloadQuota: number;
+  };
 }
 
 export interface DashboardSummary {

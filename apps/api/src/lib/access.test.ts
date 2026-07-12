@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { hasUnlimitedAccess } from './access.js';
+import { hasPermission, hasUnlimitedUsage } from './access.js';
 
-describe('hasUnlimitedAccess', () => {
-  it.each(['OWNER', 'ADMIN'])('allows %s to bypass trial quotas', (role) => {
-    expect(hasUnlimitedAccess(role)).toBe(true);
+describe('access control', () => {
+  it('keeps workspace ownership separate from paid entitlement', () => {
+    expect(hasUnlimitedUsage('USER')).toBe(false);
+    expect(hasUnlimitedUsage('SUPERADMIN')).toBe(true);
   });
 
-  it.each(['EDITOR', 'VIEWER', ''])('keeps trial quotas for %s', (role) => {
-    expect(hasUnlimitedAccess(role)).toBe(false);
+  it('enforces the workspace role matrix', () => {
+    expect(hasPermission('VIEWER', 'content:write')).toBe(false);
+    expect(hasPermission('EDITOR', 'content:write')).toBe(true);
+    expect(hasPermission('ADMIN', 'workspace:manage')).toBe(true);
   });
 });

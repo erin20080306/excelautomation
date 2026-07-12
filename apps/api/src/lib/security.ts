@@ -29,6 +29,17 @@ export function encryptSecret(value: string, hexKey: string): string {
   return [iv.toString('base64url'), cipher.getAuthTag().toString('base64url'), ciphertext.toString('base64url')].join('.');
 }
 
+export function decryptSecret(value: string, hexKey: string): string {
+  const key = /^[a-fA-F0-9]{64}$/.test(hexKey)
+    ? Buffer.from(hexKey, 'hex')
+    : crypto.createHash('sha256').update(hexKey, 'utf8').digest();
+  const [ivValue, tagValue, ciphertextValue] = value.split('.');
+  if (!ivValue || !tagValue || !ciphertextValue) throw new Error('加密資料格式錯誤');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivValue, 'base64url'));
+  decipher.setAuthTag(Buffer.from(tagValue, 'base64url'));
+  return Buffer.concat([decipher.update(Buffer.from(ciphertextValue, 'base64url')), decipher.final()]).toString('utf8');
+}
+
 export function signDownload(payload: { exportFileId: string; workspaceId: string }, secret: string): string {
   return jwt.sign(payload, secret, { expiresIn: '10m', audience: 'excelmaster-download' });
 }

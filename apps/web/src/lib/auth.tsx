@@ -4,8 +4,8 @@ import { api } from './api';
 
 type AuthValue = {
   session: UserSession | null; loading: boolean;
-  login(email: string, password: string): Promise<void>;
-  register(input: { email: string; password: string; name: string; workspaceName: string }): Promise<void>;
+  login(email: string, password: string, mfaCode?: string): Promise<{ mfaRequired: boolean }>;
+  register(input: { email: string; password: string; name: string; workspaceName: string; captchaToken: string }): Promise<{ verificationRequired: boolean; message: string }>;
   logout(): void;
 };
 
@@ -35,8 +35,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthValue>(() => ({
     session, loading,
-    async login(email, password) { const { data } = await api.post<UserSession>('/auth/login', { email, password }); persist(data); },
-    async register(input) { const { data } = await api.post<UserSession>('/auth/register', input); persist(data); },
+    async login(email, password, mfaCode) {
+      const { data } = await api.post<UserSession | { mfaRequired: true }>('/auth/login', { email, password, mfaCode });
+      if ('mfaRequired' in data) return { mfaRequired: true };
+      persist(data); return { mfaRequired: false };
+    },
+    async register(input) { const { data } = await api.post<{ verificationRequired: boolean; message: string }>('/auth/register', input); return data; },
     logout() { persist(null); }
   }), [session, loading]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -9,7 +9,10 @@ import type { Prisma } from '@prisma/client';
 const listQuery = z.object({ q: z.string().trim().optional(), page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(20) });
 
 export async function resourceRoutes(app: FastifyInstance): Promise<void> {
-  app.addHook('preHandler', app.authenticate);
+  app.addHook('preHandler', async (request) => {
+    await app.authenticate(request);
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) await app.authorize(request, 'content:write');
+  });
 
   app.get('/dashboard', async (request) => {
     const workspaceId = request.auth.workspaceId;
@@ -223,7 +226,7 @@ export async function resourceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.put('/settings', async (request) => {
-    if (!['OWNER', 'ADMIN'].includes(request.auth.role)) throw app.httpErrors.forbidden('只有管理員可修改設定');
+    await app.authorize(request, 'workspace:manage');
     const settings = z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.unknown()), z.record(z.unknown())])).parse(request.body);
     await prisma.$transaction(Object.entries(settings).map(([key, value]) => prisma.appSetting.upsert({ where: { workspaceId_key: { workspaceId: request.auth.workspaceId, key } }, create: { workspaceId: request.auth.workspaceId, key, value: value as any }, update: { value: value as any } })));
     await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'settings.update', metadata: { keys: Object.keys(settings) } });
