@@ -29,7 +29,7 @@ try {
     await bootstrapWorkspace(tx, workspace.id);
     await tx.auditLog.create({ data: { workspaceId: workspace.id, userId: user.id, action: 'seed.test-owner.create', metadata: { source: 'environment' } } });
     return { user, workspace };
-  });
+  }, { maxWait: 10_000, timeout: 120_000 });
   console.log(`測試管理者已就緒：${result.user.email} / ${result.workspace.name} / OWNER`);
 } finally {
   await prisma.$disconnect();

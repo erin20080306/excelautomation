@@ -23,7 +23,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       const workspace = await tx.workspace.create({ data: { name: body.workspaceName, members: { create: { userId: user.id, role: 'OWNER' } } } });
       await bootstrapWorkspace(tx, workspace.id);
       return { user, workspace };
-    });
+    }, { maxWait: 10_000, timeout: 30_000 });
     await writeAudit({ workspaceId: result.workspace.id, userId: result.user.id, action: 'auth.register', ipAddress: request.ip });
     return reply.code(201).send({ token: issueToken(app, result.user.id, result.workspace.id), user: { id: result.user.id, email: result.user.email, name: result.user.name }, workspace: { id: result.workspace.id, name: result.workspace.name, role: 'OWNER' } });
   });

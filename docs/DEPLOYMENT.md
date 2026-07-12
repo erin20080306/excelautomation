@@ -6,6 +6,8 @@
 - **Neon PostgreSQL**：應用資料、背景工作 Queue 與測試部署的檔案物件。
 - **Render**：同一個 Docker Web Service 內執行 Fastify API、Queue Worker 與 Python Parser。
 
+Neon Marketplace 資源目前位於 AWS `us-east-1`，因此 Blueprint 將 Render 設在 Virginia，降低 API、Worker 與資料庫之間的延遲。
+
 Queue 使用 repository 內建的標準 PostgreSQL 資料表與 `FOR UPDATE SKIP LOCKED`，不需要 `pgmq`、Redis 或 BullMQ。API 建立工作時會在同一個 database transaction 寫入業務資料與 Queue 訊息。
 
 ## 1. 在 Vercel 建立 Neon 資料庫

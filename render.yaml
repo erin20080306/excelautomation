@@ -3,7 +3,7 @@ services:
     name: excelautomation-backend
     runtime: docker
     plan: free
-    region: singapore
+    region: virginia
     dockerfilePath: ./apps/backend/Dockerfile
     dockerContext: .
     healthCheckPath: /health

@@ -32,19 +32,32 @@ const fields: Partial<Record<ReportTypeKey, Array<[string, string, string, strin
 };
 
 export async function bootstrapWorkspace(tx: Prisma.TransactionClient | PrismaClient, workspaceId: string): Promise<void> {
-  for (const key of REPORT_TYPES) {
-    const reportType = await tx.reportType.create({
-      data: { workspaceId, key, name: reportTypeLabels[key], keywords: [] }
-    });
+  const reportTypes = await tx.reportType.createManyAndReturn({
+    data: REPORT_TYPES.map((key) => ({ workspaceId, key, name: reportTypeLabels[key], keywords: [] })),
+    select: { id: true, key: true }
+  });
+  for (const reportType of reportTypes) {
+    const key = reportType.key as ReportTypeKey;
     const schemaFields = fields[key];
     if (schemaFields) {
       await tx.dynamicSchema.create({
         data: {
           workspaceId, reportTypeId: reportType.id, name: `${reportTypeLabels[key]}標準欄位`,
           fields: {
-            create: schemaFields.map(([fieldKey, name, type, aliases], position) => ({
-              key: fieldKey, name, type, position, aliases: { create: aliases.map((alias) => ({ alias, normalized: alias.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '') })) }
-            }))
+            create: schemaFields.map(([fieldKey, name, type, aliases], position) => {
+              const normalizedAliases = new Map<string, string>();
+              for (const alias of aliases) {
+                const normalized = alias.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+                if (!normalizedAliases.has(normalized)) normalizedAliases.set(normalized, alias);
+              }
+              return {
+                key: fieldKey,
+                name,
+                type,
+                position,
+                aliases: { create: [...normalizedAliases].map(([normalized, alias]) => ({ alias, normalized })) }
+              };
+            })
           }
         }
       });
