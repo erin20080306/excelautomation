@@ -70,6 +70,12 @@ MAX_ZIP_UNCOMPRESSED_MB=12
 TRIAL_MAX_FILES=5
 TRIAL_MAX_TOTAL_MB=3
 TRIAL_MAX_OUTPUT_MB=4
+APP_URL=https://excelautomation-api-seven.vercel.app
+TURNSTILE_SECRET_KEY=<Cloudflare Turnstile secret>
+RESEND_API_KEY=<Resend API key>
+MAIL_FROM=ExcelMaster <no-reply@你的已驗證網域>
+STRIPE_SECRET_KEY=<Stripe live secret key>
+STRIPE_WEBHOOK_SECRET=<Stripe webhook signing secret>
 ```
 
 API 與 Neon 同樣放在 `iad1`，減少資料庫往返延遲。`/health` 應回傳 `processingMode: "inline"`。
@@ -83,6 +89,8 @@ VITE_API_URL=https://<api-project>.vercel.app/api
 ```
 
 Root Directory 必須為 `.`，Build Command 為 `npm run build:web`，Output Directory 為 `apps/web/dist`。
+
+另設定 `VITE_TURNSTILE_SITE_KEY=<Cloudflare Turnstile site key>`。Stripe Dashboard 的 Webhook endpoint 設為 `https://excelautomation-backend.vercel.app/api/billing/webhook`，至少訂閱 `checkout.session.completed` 與 `checkout.session.expired`。未完成這些金鑰設定前，公開註冊與付款會回傳 503，不會使用不安全的 bypass。
 
 ## 5. 驗收
 

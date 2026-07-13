@@ -10,7 +10,10 @@ services:
 
   parser:
     build: { context: ., dockerfile: apps/parser/Dockerfile }
-    environment: { NODE_ENV: production, MAX_FILE_SIZE_MB: 50 }
+    environment:
+      NODE_ENV: production
+      MAX_FILE_SIZE_MB: 50
+      PARSER_SHARED_SECRET: ${PARSER_SHARED_SECRET}
     healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"], interval: 10s, timeout: 5s, retries: 20 }
 
   api:

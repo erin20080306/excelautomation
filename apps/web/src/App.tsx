@@ -11,6 +11,7 @@ import { ReviewsPage } from './pages/ReviewsPage';
 import { ReportTypesPage, RulesPage, SchemasPage, SourcesPage, TemplatesPage } from './pages/CatalogPages';
 import { AuditPage, ExportsPage, SettingsPage } from './pages/OperationsPages';
 import { AdminPage, BillingPage } from './pages/AdminPages';
+import { ResetPasswordPage, VerifyEmailPage } from './pages/IdentityPages';
 
 function ProtectedLayout() {
   const { session } = useAuth();
@@ -22,6 +23,8 @@ export function App() {
   if (loading) return <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#F3F8F6] text-brand-700"><div className="animate-pulse rounded-2xl bg-brand-600 p-4 text-white"><FileSpreadsheet size={30} /></div><p className="text-sm font-bold">正在驗證安全工作階段…</p></div>;
   return <Routes>
     <Route path="/login" element={<LoginPage />} />
+    <Route path="/verify-email" element={<VerifyEmailPage />} />
+    <Route path="/reset-password" element={<ResetPasswordPage />} />
     <Route element={<ProtectedLayout />}>
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/projects" element={<ProjectsPage />} />

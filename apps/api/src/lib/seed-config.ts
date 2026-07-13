@@ -16,7 +16,13 @@ const seedConfigSchema = z.object({
 export type SeedConfig = z.infer<typeof seedConfigSchema>;
 
 export function parseSeedConfig(environment: NodeJS.ProcessEnv): SeedConfig {
-  const result = seedConfigSchema.safeParse(environment);
+  let decodedPassword = environment.SEED_ADMIN_PASSWORD;
+  if (!decodedPassword && environment.SEED_ADMIN_PASSWORD_BASE64) {
+    const encoded = environment.SEED_ADMIN_PASSWORD_BASE64.trim();
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error('測試管理者 seed 設定錯誤：密碼 Base64 格式錯誤');
+    decodedPassword = Buffer.from(encoded, 'base64').toString('utf8');
+  }
+  const result = seedConfigSchema.safeParse({ ...environment, SEED_ADMIN_PASSWORD: decodedPassword });
   if (!result.success) {
     throw new Error(`測試管理者 seed 設定錯誤：${result.error.issues.map((issue) => issue.message).join('；')}`);
   }

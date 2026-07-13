@@ -47,7 +47,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
-function verifyStripeSignature(rawBody: Buffer, signature: string, secret: string): boolean {
+export function verifyStripeSignature(rawBody: Buffer, signature: string, secret: string): boolean {
   const values = Object.fromEntries(signature.split(',').map((part) => part.split('=', 2) as [string, string]));
   const timestamp = values.t;
   const expected = values.v1;

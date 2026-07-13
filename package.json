@@ -21,7 +21,7 @@
     "test:watch": "vitest",
     "db:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
     "db:push": "prisma db push --schema apps/api/prisma/schema.prisma",
-    "db:seed": "tsx --env-file=.env apps/api/prisma/seed.ts",
+    "db:seed": "tsx --env-file=.env apps/api/src/seed.ts",
     "postinstall": "npm run db:generate"
   },
   "devDependencies": {

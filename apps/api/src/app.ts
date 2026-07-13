@@ -15,6 +15,7 @@ import { fileRoutes } from './routes/files.js';
 import { exportRoutes } from './routes/exports.js';
 import { adminRoutes } from './routes/admin.js';
 import { billingRoutes, billingWebhookRoutes } from './routes/billing.js';
+import { downloadRoutes } from './routes/downloads.js';
 
 export async function buildApp(existingApp?: FastifyInstance): Promise<FastifyInstance> {
   const config = loadConfig();
@@ -66,6 +67,7 @@ export async function buildApp(existingApp?: FastifyInstance): Promise<FastifyIn
   }, { prefix: '/api/billing' });
   await app.register(billingRoutes, { prefix: '/api/billing' });
   await app.register(adminRoutes, { prefix: '/api/admin' });
+  await app.register(downloadRoutes, { prefix: '/api/downloads' });
   await app.register(resourceRoutes, { prefix: '/api' });
   await app.register(async (scope) => fileRoutes(scope, storage), { prefix: '/api/files' });
   await app.register(async (scope) => exportRoutes(scope, storage), { prefix: '/api/exports' });

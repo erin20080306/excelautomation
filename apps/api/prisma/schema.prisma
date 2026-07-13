@@ -159,7 +159,7 @@ model AuthToken {
 
 model ReleaseArtifact {
   id          String            @id @default(cuid())
-  version     String            @unique
+  version     String
   name        String
   contentType String            @default("application/zip")
   data        Bytes
@@ -171,6 +171,9 @@ model ReleaseArtifact {
   publishedAt DateTime          @default(now())
   createdAt   DateTime          @default(now())
   downloads   PackageDownload[]
+
+  @@unique([version, platform])
+  @@index([active, publishedAt])
 }
 
 model PaymentOrder {

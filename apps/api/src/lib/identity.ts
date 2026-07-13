@@ -35,6 +35,10 @@ function totpAt(secret: string, timestamp: number): string {
   return String(binary).padStart(6, '0');
 }
 
+export function generateTotpCode(secret: string, timestamp = Date.now()): string {
+  return totpAt(secret, timestamp);
+}
+
 export function createTotpSecret(): string {
   return encodeBase32(crypto.randomBytes(20));
 }
