@@ -74,14 +74,14 @@ docker compose up -d api worker web
 
 Vercel Functions 的 request body 上限為 4.5 MB，因此前後端將試用版限制為單批最多 5 份、總上傳量 3 MB、輸出 4 MB。分析與匯出在同一次請求內完成；大量批次、排程、重試與背景 Queue 由下載包提供。逐步部署與環境變數請見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
-公開註冊者即使是工作區 `OWNER` 仍固定使用 `TRIAL` 方案；只有平台 `SUPERADMIN` 沒有產品配額。一般帳號必須經 Stripe Checkout 付款，且只有通過簽章驗證的 Webhook 能升級工作區。建議售價與毛利假設請見 [`docs/PRICING.md`](docs/PRICING.md)。
+公開註冊者即使是工作區 `OWNER` 仍固定使用 `TRIAL` 方案；只有平台 `SUPERADMIN` 沒有產品配額。一般帳號必須經綠界 ECPay（台灣優先）或 Stripe Checkout 付款，且只有通過簽章驗證的伺服器通知能升級工作區。建議售價與毛利假設請見 [`docs/PRICING.md`](docs/PRICING.md)。
 
 ## 帳號與付款安全
 
 - 平台角色（`SUPERADMIN/USER`）、工作區角色（`OWNER/ADMIN/EDITOR/VIEWER`）與產品方案完全分離。
 - 公開註冊使用 Cloudflare Turnstile 並強制 Email 驗證；未設定 Turnstile/Resend 時，Production 會安全關閉公開註冊。
 - 登入連續失敗會鎖定帳號，支援 TOTP MFA、短效密碼重設 token 與停權。
-- Stripe Checkout 金額由 server-side 方案表決定；前端不能傳入價格。Webhook 使用原始 request body 驗證 Stripe HMAC 簽章。
+- 付款金額由 server-side 方案表決定；前端不能傳入價格。綠界通知驗證 SHA-256 `CheckMacValue`、商店編號、訂單與金額；Stripe Webhook 驗證原始 request body 的 HMAC 簽章。
 - 安裝包 Release 依最低方案授權，下載 token 只保存 SHA-256、10 分鐘有效且只能使用一次；申請與完成下載皆寫入平台稽核。
 
 ## 驗證

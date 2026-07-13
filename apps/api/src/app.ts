@@ -62,7 +62,7 @@ export async function buildApp(existingApp?: FastifyInstance): Promise<FastifyIn
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(async (scope) => {
     scope.removeAllContentTypeParsers();
-    scope.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_request, body, done) => done(null, body));
+    scope.addContentTypeParser(['application/json', 'application/x-www-form-urlencoded'], { parseAs: 'buffer' }, (_request, body, done) => done(null, body));
     await scope.register(billingWebhookRoutes);
   }, { prefix: '/api/billing' });
   await app.register(billingRoutes, { prefix: '/api/billing' });

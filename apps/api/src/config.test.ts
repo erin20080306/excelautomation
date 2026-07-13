@@ -32,4 +32,11 @@ describe('loadConfig', () => {
     expect(config.TRIAL_MAX_FILES).toBe(5);
     expect(config.TRIAL_MAX_TOTAL_MB).toBe(3);
   });
+
+  it('treats blank optional service settings as not configured', () => {
+    const config = loadConfig({ ...required, STRIPE_SECRET_KEY: '', ECPAY_MERCHANT_ID: '', TURNSTILE_SECRET_KEY: '' });
+    expect(config.STRIPE_SECRET_KEY).toBeUndefined();
+    expect(config.ECPAY_MERCHANT_ID).toBeUndefined();
+    expect(config.TURNSTILE_SECRET_KEY).toBeUndefined();
+  });
 });

@@ -13,6 +13,10 @@ const envSchema = z.object({
   MAIL_FROM: z.string().min(3).optional(),
   STRIPE_SECRET_KEY: z.string().min(10).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(10).optional(),
+  ECPAY_MERCHANT_ID: z.string().min(7).max(10).optional(),
+  ECPAY_HASH_KEY: z.string().min(8).optional(),
+  ECPAY_HASH_IV: z.string().min(8).optional(),
+  ECPAY_TEST_MODE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   LOGIN_MAX_FAILURES: z.coerce.number().int().min(3).max(20).default(5),
   LOGIN_LOCK_MINUTES: z.coerce.number().int().min(5).max(1440).default(15),
   PARSER_URL: z.string().url().default('http://localhost:8000'),
@@ -36,9 +40,10 @@ const envSchema = z.object({
 export type AppConfig = z.infer<typeof envSchema>;
 
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
+  const normalized = Object.fromEntries(Object.entries(environment).map(([key, value]) => [key, value === '' ? undefined : value]));
   const parsed = envSchema.safeParse({
-    ...environment,
-    API_PORT: environment.API_PORT ?? environment.PORT
+    ...normalized,
+    API_PORT: normalized.API_PORT ?? normalized.PORT
   });
   if (!parsed.success) {
     throw new Error(`環境變數設定錯誤: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ')}`);

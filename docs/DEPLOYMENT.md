@@ -76,6 +76,10 @@ RESEND_API_KEY=<Resend API key>
 MAIL_FROM=ExcelMaster <no-reply@你的已驗證網域>
 STRIPE_SECRET_KEY=<Stripe live secret key>
 STRIPE_WEBHOOK_SECRET=<Stripe webhook signing secret>
+ECPAY_MERCHANT_ID=<綠界商店代號>
+ECPAY_HASH_KEY=<綠界 HashKey>
+ECPAY_HASH_IV=<綠界 HashIV>
+ECPAY_TEST_MODE=false
 ```
 
 API 與 Neon 同樣放在 `iad1`，減少資料庫往返延遲。`/health` 應回傳 `processingMode: "inline"`。
@@ -90,7 +94,7 @@ VITE_API_URL=https://<api-project>.vercel.app/api
 
 Root Directory 必須為 `.`，Build Command 為 `npm run build:web`，Output Directory 為 `apps/web/dist`。
 
-另設定 `VITE_TURNSTILE_SITE_KEY=<Cloudflare Turnstile site key>`。Stripe Dashboard 的 Webhook endpoint 設為 `https://excelautomation-backend.vercel.app/api/billing/webhook`，至少訂閱 `checkout.session.completed` 與 `checkout.session.expired`。未完成這些金鑰設定前，公開註冊與付款會回傳 503，不會使用不安全的 bypass。
+另設定 `VITE_TURNSTILE_SITE_KEY=<Cloudflare Turnstile site key>`。台灣商家優先使用綠界，後端通知網址為 `https://excelautomation-backend.vercel.app/api/billing/ecpay/notify`；測試商店才可設 `ECPAY_TEST_MODE=true`。若使用有資格申請的海外 Stripe 帳戶，Webhook endpoint 設為 `https://excelautomation-backend.vercel.app/api/billing/webhook`，至少訂閱 `checkout.session.completed` 與 `checkout.session.expired`。未完成金鑰設定前，公開註冊與付款會回傳 503，不會使用不安全的 bypass。
 
 ## 5. 驗收
 

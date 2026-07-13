@@ -13,7 +13,12 @@ export function BillingPage() {
   const orders = useQuery({ queryKey: ['billing-orders'], queryFn: async () => (await api.get('/billing/orders')).data });
   const releases = useQuery({ queryKey: ['releases'], queryFn: async () => (await api.get('/downloads/releases')).data });
   const usage = useQuery({ queryKey: ['download-usage'], queryFn: async () => (await api.get('/downloads/usage')).data });
-  const checkout = useMutation({ mutationFn: async (plan: string) => (await api.post('/billing/checkout', { plan })).data, onSuccess: (data) => window.location.assign(data.checkoutUrl) });
+  const checkout = useMutation({ mutationFn: async (plan: string) => (await api.post('/billing/checkout', { plan })).data, onSuccess: (data) => {
+    if (data.checkoutUrl) { window.location.assign(data.checkoutUrl); return; }
+    const form = document.createElement('form'); form.method = 'POST'; form.action = data.checkoutForm.action;
+    for (const [name, value] of Object.entries(data.checkoutForm.fields)) { const input = document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = String(value); form.appendChild(input); }
+    document.body.appendChild(form); form.submit();
+  }, onError: (error) => window.alert(errorMessage(error)) });
   const download = useMutation({ mutationFn: async (releaseId: string) => (await api.post('/downloads/request', { releaseId })).data, onSuccess: (data) => window.location.assign(data.url) });
   return <><PageHeader title="方案與授權" description={`目前方案：${session?.workspace.plan ?? 'TRIAL'}。工作區 OWNER 只代表管理權，付費權益由此方案決定。`} />
     {checkout.error && <Notice type="error">{errorMessage(checkout.error)}</Notice>}
