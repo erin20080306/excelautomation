@@ -4,13 +4,14 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { PLAN_CATALOG } from '../lib/plans.js';
 import { subscriptionSnapshot } from '../lib/subscription.js';
+import { isAllowedSuperadmin } from '../lib/admin-access.js';
 
 const planSchema = z.enum(['TRIAL', 'STARTER', 'PROFESSIONAL', 'BUSINESS', 'ENTERPRISE']);
 
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', async (request) => {
     await app.authenticate(request);
-    if (request.auth.platformRole !== 'SUPERADMIN') throw app.httpErrors.forbidden('需要平台 SUPERADMIN 權限');
+    if (request.auth.platformRole !== 'SUPERADMIN' || !isAllowedSuperadmin(request.auth.email, app.config.SUPERADMIN_EMAILS)) throw app.httpErrors.forbidden('此帳號沒有平台管理權限');
   });
 
   app.get('/overview', async () => {
@@ -31,6 +32,8 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.patch('/users/:id', async (request, reply) => {
     const { id } = z.object({ id: z.string().cuid() }).parse(request.params);
     const body = z.object({ status: z.enum(['PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED']).optional(), platformRole: z.enum(['USER', 'SUPERADMIN']).optional(), emailVerified: z.boolean().optional() }).parse(request.body);
+    const target = await prisma.user.findUniqueOrThrow({ where: { id }, select: { email: true } });
+    if (body.platformRole === 'SUPERADMIN' && !isAllowedSuperadmin(target.email, app.config.SUPERADMIN_EMAILS)) return reply.code(400).send({ message: '此 Email 不在平台管理者允許清單中' });
     if (id === request.auth.userId && ((body.status && body.status !== 'ACTIVE') || body.platformRole === 'USER' || body.emailVerified === false)) return reply.code(400).send({ message: '不可停權、取消驗證或降級目前登入的 SUPERADMIN' });
     const item = await prisma.user.update({ where: { id }, data: { status: body.status, platformRole: body.platformRole, emailVerifiedAt: body.emailVerified === undefined ? undefined : body.emailVerified ? new Date() : null } });
     await prisma.platformAudit.create({ data: { actorUserId: request.auth.userId, action: 'admin.user.update', entityType: 'User', entityId: id, metadata: body, ipAddress: request.ip } });

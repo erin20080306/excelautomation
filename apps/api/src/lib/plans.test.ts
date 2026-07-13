@@ -12,4 +12,10 @@ describe('plan catalog', () => {
     expect(planIncludes('PROFESSIONAL', 'STARTER')).toBe(true);
     expect(planIncludes('STARTER', 'BUSINESS')).toBe(false);
   });
+
+  it('increases monthly smart-code quotas by plan', () => {
+    expect(PLAN_CATALOG.TRIAL.codeGenerationQuota).toBe(3);
+    expect(PLAN_CATALOG.STARTER.codeGenerationQuota).toBeLessThan(PLAN_CATALOG.PROFESSIONAL.codeGenerationQuota);
+    expect(PLAN_CATALOG.PROFESSIONAL.codeGenerationQuota).toBeLessThan(PLAN_CATALOG.BUSINESS.codeGenerationQuota);
+  });
 });

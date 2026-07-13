@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
 import { hasPermission, type WorkspacePermission } from '../lib/access.js';
 import { subscriptionSnapshot } from '../lib/subscription.js';
+import { effectivePlatformRole } from '../lib/admin-access.js';
 
 export const authPlugin = fp(async (app: FastifyInstance) => {
   app.decorateRequest('auth');
@@ -25,13 +26,15 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
     });
     if (!member) throw app.httpErrors.forbidden('無此工作區權限');
     if (member.user.status !== 'ACTIVE' || !member.user.emailVerifiedAt) throw app.httpErrors.unauthorized('帳號尚未啟用或已停權');
-    if (member.workspace.suspendedAt && member.user.platformRole !== 'SUPERADMIN') throw app.httpErrors.forbidden('工作區已停用');
+    const platformRole = effectivePlatformRole(member.user.platformRole, member.user.email, app.config.SUPERADMIN_EMAILS);
+    if (member.workspace.suspendedAt && platformRole !== 'SUPERADMIN') throw app.httpErrors.forbidden('工作區已停用');
     const entitlement = subscriptionSnapshot(member.workspace);
     request.auth = {
       userId: payload.userId,
+      email: member.user.email,
       workspaceId: payload.workspaceId,
       role: member.role,
-      platformRole: member.user.platformRole,
+      platformRole,
       workspacePlan: entitlement.effectivePlan,
       purchasedPlan: entitlement.purchasedPlan,
       subscriptionActive: entitlement.active,
@@ -40,7 +43,8 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
       fileQuota: entitlement.catalog.fileQuota,
       totalMbQuota: entitlement.catalog.totalMbQuota,
       outputMbQuota: entitlement.catalog.outputMbQuota,
-      downloadQuota: entitlement.catalog.downloadQuota
+      downloadQuota: entitlement.catalog.downloadQuota,
+      codeGenerationQuota: entitlement.catalog.codeGenerationQuota
     };
   });
 });

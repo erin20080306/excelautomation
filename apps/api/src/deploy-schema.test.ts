@@ -8,5 +8,7 @@ describe('subscription deployment schema', () => {
     expect(sql).toContain('WHEN duplicate_object');
     expect(sql).toContain("INTERVAL '30 days'");
     expect(sql).toContain('LicenseActivation');
+    expect(sql).toContain('CodeGeneration');
+    expect(sql).toContain('CodeGenerationStatus');
   });
 });

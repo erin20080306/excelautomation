@@ -81,7 +81,7 @@ export interface UserSession {
       startedAt: string | null;
       endsAt: string | null;
     };
-    fileQuota: number; totalMbQuota: number; outputMbQuota: number; downloadQuota: number;
+    fileQuota: number; totalMbQuota: number; outputMbQuota: number; downloadQuota: number; codeGenerationQuota: number;
   };
 }
 

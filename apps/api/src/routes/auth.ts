@@ -11,6 +11,7 @@ import {
   sendEmail, verifyCaptcha, verifyTotp
 } from '../lib/identity.js';
 import { subscriptionSnapshot } from '../lib/subscription.js';
+import { effectivePlatformRole } from '../lib/admin-access.js';
 
 const baseCredentials = z.object({ email: z.string().email().transform((value) => value.toLowerCase()), password: z.string().min(10).max(128) });
 
@@ -23,13 +24,14 @@ function sessionPayload(app: FastifyInstance, user: any, membership: any) {
   const entitlement = subscriptionSnapshot(workspace);
   return {
     token: issueToken(app, user.id, membership.workspaceId),
-    user: { id: user.id, email: user.email, name: user.name, platformRole: user.platformRole, mfaEnabled: Boolean(user.mfaEnabledAt) },
+    user: { id: user.id, email: user.email, name: user.name, platformRole: effectivePlatformRole(user.platformRole, user.email, app.config.SUPERADMIN_EMAILS), mfaEnabled: Boolean(user.mfaEnabledAt) },
     workspace: {
       id: workspace.id, name: workspace.name, role: membership.role, plan: entitlement.effectivePlan,
       purchasedPlan: entitlement.purchasedPlan,
       subscription: { active: entitlement.active, status: entitlement.status, interval: entitlement.interval, startedAt: entitlement.startedAt, endsAt: entitlement.endsAt },
       fileQuota: entitlement.catalog.fileQuota, totalMbQuota: entitlement.catalog.totalMbQuota,
-      outputMbQuota: entitlement.catalog.outputMbQuota, downloadQuota: entitlement.catalog.downloadQuota
+      outputMbQuota: entitlement.catalog.outputMbQuota, downloadQuota: entitlement.catalog.downloadQuota,
+      codeGenerationQuota: entitlement.catalog.codeGenerationQuota
     }
   };
 }
@@ -45,8 +47,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     registrationEnabled: identityServicesReady(app.config), captchaRequired: app.config.NODE_ENV === 'production',
     processing: {
       mode: app.config.PROCESSING_MODE,
-      maxFilesPerBatch: app.config.PROCESSING_MODE === 'inline' ? app.config.INLINE_MAX_FILES : null,
+      maxFilesPerBatch: app.config.PROCESSING_MODE === 'inline' ? app.config.INLINE_MAX_BATCH_FILES : null,
+      maxFilesPerRequest: app.config.PROCESSING_MODE === 'inline' ? app.config.INLINE_MAX_FILES : null,
+      recommendedConcurrency: app.config.PROCESSING_MODE === 'inline' ? app.config.INLINE_CLIENT_CONCURRENCY : null,
       maxUploadMb: app.config.PROCESSING_MODE === 'inline' ? Math.min(app.config.MAX_FILE_SIZE_MB, app.config.INLINE_MAX_TOTAL_MB) : null,
+      uploadLimitScope: app.config.PROCESSING_MODE === 'inline' ? 'per_file' : null,
       maxOutputMb: app.config.PROCESSING_MODE === 'inline' ? app.config.INLINE_MAX_OUTPUT_MB : null
     }
   }));
@@ -106,7 +111,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
     const membership = user.memberships[0];
     if (!membership) return reply.code(403).send({ message: '帳號尚未加入工作區' });
-    if (membership.workspace.suspendedAt && user.platformRole !== 'SUPERADMIN') return reply.code(403).send({ message: '工作區已停用' });
+    if (membership.workspace.suspendedAt && effectivePlatformRole(user.platformRole, user.email, app.config.SUPERADMIN_EMAILS) !== 'SUPERADMIN') return reply.code(403).send({ message: '工作區已停用' });
     await prisma.user.update({ where: { id: user.id }, data: { failedLoginCount: 0, lockedUntil: null } });
     await writeAudit({ workspaceId: membership.workspaceId, userId: user.id, action: 'auth.login', ipAddress: request.ip });
     return sessionPayload(app, user, membership);

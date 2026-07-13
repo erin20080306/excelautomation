@@ -16,7 +16,7 @@ import { assertSafeArchivePath, safeFileName } from '../lib/security.js';
 import { writeAudit } from '../lib/audit.js';
 import { createInlineProcessor } from '../lib/processor.js';
 import { hasUnlimitedUsage } from '../lib/access.js';
-import { resolveProcessingLimits } from '../lib/processing-limits.js';
+import { resolveBatchFileLimit, resolveProcessingLimits } from '../lib/processing-limits.js';
 
 const allowedExtensions = new Set(['.xlsx', '.xlsm', '.xls', '.csv', '.tsv']);
 const allowedMime = new Set([
@@ -212,7 +212,7 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
         }
       }
       await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'files.upload', entityType: 'ProcessingJob', entityId: processingJob?.id, metadata: { accepted: accepted.length, duplicates: duplicates.length, rejected: rejected.length }, ipAddress: request.ip });
-      return reply.code(inlineProcessor ? 201 : 202).send({ job: processingJob, accepted: accepted.length, duplicates: duplicates.length, rejected, processingErrors, processingMode: inlineProcessor ? 'inline' : 'queue' });
+      return reply.code(inlineProcessor ? 201 : 202).send({ job: processingJob, sourceFileIds: batchSourceIds, accepted: accepted.length, duplicates: duplicates.length, rejected, processingErrors, processingMode: inlineProcessor ? 'inline' : 'queue' });
     } finally {
       await fsp.rm(tempDir, { recursive: true, force: true });
     }
@@ -273,10 +273,52 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
         }
       }
       await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'google_sheets.import', entityType: 'ProcessingJob', entityId: processingJob?.id, metadata: { accepted: accepted.length, duplicates: duplicates.length, rejected: rejected.length }, ipAddress: request.ip });
-      return reply.code(inlineProcessor ? 201 : 202).send({ job: processingJob, accepted: accepted.length, duplicates: duplicates.length, rejected, processingErrors, processingMode: inlineProcessor ? 'inline' : 'queue' });
+      return reply.code(inlineProcessor ? 201 : 202).send({ job: processingJob, sourceFileIds: sourceIds, accepted: accepted.length, duplicates: duplicates.length, rejected, processingErrors, processingMode: inlineProcessor ? 'inline' : 'queue' });
     } finally {
       await fsp.rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  app.post('/combine-existing', async (request, reply) => {
+    const body = z.object({
+      sourceFileIds: z.array(z.string().cuid()).min(1).max(1_000),
+      batchName: z.string().trim().min(1).max(100).optional(),
+      projectId: z.string().cuid().optional()
+    }).parse(request.body);
+    const sourceFileIds = [...new Set(body.sourceFileIds)];
+    const batchLimit = resolveBatchFileLimit(app.config.PROCESSING_MODE, app.config.INLINE_MAX_BATCH_FILES, request.auth.fileQuota);
+    if (sourceFileIds.length > batchLimit) return reply.code(400).send({ message: `目前方案一次最多合併 ${batchLimit} 份試算表。` });
+    if (body.projectId) {
+      const project = await prisma.integrationProject.findFirst({ where: { id: body.projectId, workspaceId: request.auth.workspaceId } });
+      if (!project) return reply.code(400).send({ message: '整合專案不存在。' });
+    }
+    const sources = await prisma.sourceFile.findMany({ where: { id: { in: sourceFileIds }, workspaceId: request.auth.workspaceId }, select: { id: true, name: true, status: true } });
+    if (sources.length !== sourceFileIds.length) return reply.code(400).send({ message: '部分來源檔案不存在或不屬於目前工作區。' });
+    const failed = sources.filter((source) => source.status === 'failed');
+    if (failed.length) return reply.code(409).send({ message: `請先重新分析失敗的檔案：${failed.map((source) => source.name).join('、')}` });
+    const pending = sources.filter((source) => !['completed', 'awaiting_review'].includes(source.status));
+    if (pending.length) return reply.code(409).send({ message: `尚有檔案正在分析：${pending.map((source) => source.name).join('、')}` });
+    const requiresReview = sources.some((source) => source.status === 'awaiting_review');
+    const now = new Date();
+    const status = requiresReview ? 'awaiting_review' : 'completed';
+    const job = await prisma.processingJob.create({
+      data: {
+        workspaceId: request.auth.workspaceId,
+        projectId: body.projectId,
+        name: body.batchName ?? `智慧合併 ${new Date().toLocaleString('zh-TW', { hour12: false })}`,
+        status,
+        progress: 100,
+        totalItems: sourceFileIds.length,
+        completedItems: sourceFileIds.length,
+        startedAt: now,
+        completedAt: now,
+        config: { source: 'combined_existing', independentlyUploaded: true },
+        items: { create: sourceFileIds.map((sourceFileId) => ({ sourceFileId, status, progress: 100, startedAt: now, completedAt: now })) }
+      },
+      include: { items: true }
+    });
+    await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'files.combine_existing', entityType: 'ProcessingJob', entityId: job.id, metadata: { sourceFiles: sourceFileIds.length, requiresReview }, ipAddress: request.ip });
+    return reply.code(201).send({ job });
   });
 
   app.post('/:id/reanalyze', async (request, reply) => {

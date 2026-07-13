@@ -14,6 +14,18 @@
 
 年繳約為十個月月費，保留約 16%–17% 的預付折扣。ENTERPRISE 應採人工報價，不應直接以一般線上刷卡承接未界定的客製或 SLA。
 
+## 智慧 VBA／Apps Script 額度
+
+| 方案 | 每月產碼次數 | 大批次檔案額度 |
+|---|---:|---:|
+| TRIAL | 3 | 5 |
+| STARTER | 30 | 20 |
+| PROFESSIONAL | 150 | 100 |
+| BUSINESS | 600 | 500（線上環境首階段單批最多 100） |
+| ENTERPRISE | 3,000 | 合約／部署環境約定 |
+
+智慧產碼使用穩定版 `gemini-2.5-flash`。典型一次 8,000 輸入 Token、3,000 輸出 Token、1,000 思考 Token，官方牌價成本約 USD 0.0124（約 NT$0.40，實際依使用量變動）。可在付款功能上線後另售 100 次 NT$199、500 次 NT$799 的加購包，但不應在金流尚未串接前假裝完成購買。
+
 ## 所有方案的產品主軸
 
 - 自動搜尋表頭並理解欄位語意，不要求先套固定模板。
@@ -46,7 +58,7 @@
 
 初期固定基礎成本約 NT$1,117／月（Vercel Pro＋Neon Launch＋Resend Free）；升級 Email 後約 NT$1,755／月。尚未包含網域、客服工時、退款、會計／發票、備援與大量用量超額。
 
-以一般賣家國內信用卡牌價估算，每筆月費的金流成本約為：STARTER NT$13、PROFESSIONAL NT$38、BUSINESS NT$116、ENTERPRISE NT$287。現行 GAS／Excel 專業報告採規則與統計運算，沒有串接付費 LLM，因此目前沒有每份報告的 AI Token 成本。
+以一般賣家國內信用卡牌價估算，每筆月費的金流成本約為：STARTER NT$13、PROFESSIONAL NT$38、BUSINESS NT$116、ENTERPRISE NT$287。GAS／Excel 專業報告仍採規則與統計運算，不產生 LLM 成本；只有使用者主動使用智慧 VBA／Apps Script 工作台才會產生 Gemini Token 成本。
 
 - [Vercel Pricing](https://vercel.com/pricing)
 - [Neon Pricing](https://neon.com/pricing)

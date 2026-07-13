@@ -13,6 +13,7 @@ import { AuditPage, ExportsPage, SettingsPage } from './pages/OperationsPages';
 import { AdminPage, BillingPage } from './pages/AdminPages';
 import { ResetPasswordPage, VerifyEmailPage } from './pages/IdentityPages';
 import { PrivacyPage, SecurityPolicyPage } from './pages/LegalPages';
+import { CodeStudioPage } from './pages/CodeStudioPage';
 
 function ProtectedLayout() {
   const { session } = useAuth();
@@ -32,6 +33,7 @@ export function App() {
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/projects" element={<ProjectsPage />} />
       <Route path="/analysis" element={<AnalysisPage />} />
+      <Route path="/code-studio" element={<CodeStudioPage />} />
       <Route path="/sources" element={<SourcesPage />} />
       <Route path="/queue" element={<QueuePage />} />
       <Route path="/reviews" element={<ReviewsPage />} />

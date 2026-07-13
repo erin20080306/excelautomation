@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Activity, BadgeDollarSign, BarChart3, ChevronRight, CircleHelp, ClipboardCheck, Database, Download, FileClock, FileSpreadsheet,
+  Activity, BadgeDollarSign, BarChart3, ChevronRight, CircleHelp, ClipboardCheck, Code2, Database, Download, FileClock, FileSpreadsheet,
   FolderKanban, Image, KeyRound, LayoutDashboard, LogOut, Menu, Network, Search, Settings, ShieldCheck, Sparkles, X
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
@@ -13,6 +13,7 @@ const navGroups = [
   { label: '開始使用', items: [
     { path: '/dashboard', label: '首頁', icon: LayoutDashboard },
     { path: '/analysis', label: '整合工作台', icon: FileSpreadsheet },
+    { path: '/code-studio', label: '智慧程式碼', icon: Code2 },
     { path: '/exports', label: '結果與下載', icon: FileClock }
   ] },
   { label: '檢查進度', items: [

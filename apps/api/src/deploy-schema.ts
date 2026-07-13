@@ -4,6 +4,8 @@ export const subscriptionMigrationStatements = [
   `DO $$ BEGIN CREATE TYPE "BillingInterval" AS ENUM ('MONTHLY','YEARLY','MANUAL'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN CREATE TYPE "SubscriptionStatus" AS ENUM ('TRIALING','ACTIVE','PAST_DUE','CANCELLED','EXPIRED','SUSPENDED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN CREATE TYPE "LicenseStatus" AS ENUM ('PENDING','ACTIVE','REVOKED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN CREATE TYPE "CodeTarget" AS ENUM ('VBA','APPS_SCRIPT','BOTH'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN CREATE TYPE "CodeGenerationStatus" AS ENUM ('SUCCEEDED','FAILED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `ALTER TABLE "Workspace" ADD COLUMN IF NOT EXISTS "subscriptionStatus" "SubscriptionStatus" NOT NULL DEFAULT 'TRIALING'`,
   `ALTER TABLE "Workspace" ADD COLUMN IF NOT EXISTS "subscriptionInterval" "BillingInterval"`,
   `ALTER TABLE "Workspace" ADD COLUMN IF NOT EXISTS "subscriptionStartedAt" TIMESTAMP(3)`,
@@ -25,6 +27,20 @@ export const subscriptionMigrationStatements = [
   `DO $$ BEGIN ALTER TABLE "LicenseActivation" ADD CONSTRAINT "LicenseActivation_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN ALTER TABLE "LicenseActivation" ADD CONSTRAINT "LicenseActivation_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN ALTER TABLE "LicenseActivation" ADD CONSTRAINT "LicenseActivation_downloadId_fkey" FOREIGN KEY ("downloadId") REFERENCES "PackageDownload"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `CREATE TABLE IF NOT EXISTS "CodeGeneration" (
+    "id" TEXT NOT NULL, "workspaceId" TEXT NOT NULL, "userId" TEXT NOT NULL,
+    "target" "CodeTarget" NOT NULL, "requirement" TEXT NOT NULL,
+    "sourceContext" JSONB NOT NULL DEFAULT '[]', "result" JSONB, "model" TEXT NOT NULL,
+    "status" "CodeGenerationStatus" NOT NULL, "promptTokens" INTEGER NOT NULL DEFAULT 0,
+    "outputTokens" INTEGER NOT NULL DEFAULT 0, "thinkingTokens" INTEGER NOT NULL DEFAULT 0,
+    "totalTokens" INTEGER NOT NULL DEFAULT 0, "estimatedCostUsd" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "errorMessage" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "CodeGeneration_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE INDEX IF NOT EXISTS "CodeGeneration_workspaceId_createdAt_idx" ON "CodeGeneration"("workspaceId","createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "CodeGeneration_userId_createdAt_idx" ON "CodeGeneration"("userId","createdAt")`,
+  `DO $$ BEGIN ALTER TABLE "CodeGeneration" ADD CONSTRAINT "CodeGeneration_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN ALTER TABLE "CodeGeneration" ADD CONSTRAINT "CodeGeneration_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `UPDATE "Workspace" SET "subscriptionStatus"='ACTIVE', "subscriptionInterval"=COALESCE("subscriptionInterval",'MANUAL'), "subscriptionStartedAt"=COALESCE("subscriptionStartedAt",CURRENT_TIMESTAMP), "subscriptionEndsAt"=COALESCE("subscriptionEndsAt",CURRENT_TIMESTAMP + INTERVAL '30 days') WHERE "plan" <> 'TRIAL' AND "subscriptionEndsAt" IS NULL`
 ] as const;
 

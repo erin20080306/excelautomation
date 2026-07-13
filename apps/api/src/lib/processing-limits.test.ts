@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveProcessingLimits } from './processing-limits.js';
+import { resolveBatchFileLimit, resolveProcessingLimits } from './processing-limits.js';
 
 const auth = { platformRole: 'SUPERADMIN' as const, fileQuota: 500, totalMbQuota: 2_000, outputMbQuota: 2_000 };
 
@@ -15,5 +15,13 @@ describe('processing infrastructure limits', () => {
 
   it('keeps the local queue superadmin product-unlimited', () => {
     expect(resolveProcessingLimits({ processingMode: 'queue', inlineFileQuota: 5, inlineTotalMbQuota: 3, inlineOutputMbQuota: 4 }, auth).unlimited).toBe(true);
+  });
+});
+
+describe('batch file limits', () => {
+  it('allows large sequential online batches while preserving plan quota', () => {
+    expect(resolveBatchFileLimit('inline', 100, 5)).toBe(5);
+    expect(resolveBatchFileLimit('inline', 100, 500)).toBe(100);
+    expect(resolveBatchFileLimit('queue', 100, 500)).toBe(500);
   });
 });

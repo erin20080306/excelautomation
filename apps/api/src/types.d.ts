@@ -4,6 +4,7 @@ declare module 'fastify' {
   interface FastifyRequest {
     auth: {
       userId: string;
+      email: string;
       workspaceId: string;
       role: 'OWNER' | 'ADMIN' | 'EDITOR' | 'VIEWER';
       platformRole: 'USER' | 'SUPERADMIN';
@@ -16,6 +17,7 @@ declare module 'fastify' {
       totalMbQuota: number;
       outputMbQuota: number;
       downloadQuota: number;
+      codeGenerationQuota: number;
     };
   }
 }

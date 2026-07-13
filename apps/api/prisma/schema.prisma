@@ -66,6 +66,17 @@ enum LicenseStatus {
   REVOKED
 }
 
+enum CodeTarget {
+  VBA
+  APPS_SCRIPT
+  BOTH
+}
+
+enum CodeGenerationStatus {
+  SUCCEEDED
+  FAILED
+}
+
 enum SourceKind {
   UPLOAD
   FOLDER
@@ -131,6 +142,7 @@ model User {
   platformAudits     PlatformAudit[]     @relation("PlatformAuditActor")
   paymentOrders      PaymentOrder[]
   licenseActivations LicenseActivation[]
+  codeGenerations    CodeGeneration[]
 }
 
 model Workspace {
@@ -170,6 +182,7 @@ model Workspace {
   packageDownloads        PackageDownload[]
   paymentOrders           PaymentOrder[]
   licenseActivations      LicenseActivation[]
+  codeGenerations         CodeGeneration[]
 }
 
 model AuthToken {
@@ -554,6 +567,30 @@ model AnalysisResult {
   sourceFile     SourceFile @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
 
   @@unique([sourceFileId, version])
+}
+
+model CodeGeneration {
+  id               String               @id @default(cuid())
+  workspaceId      String
+  userId           String
+  target           CodeTarget
+  requirement      String
+  sourceContext    Json                 @default("[]")
+  result           Json?
+  model             String
+  status            CodeGenerationStatus
+  promptTokens      Int                  @default(0)
+  outputTokens      Int                  @default(0)
+  thinkingTokens    Int                  @default(0)
+  totalTokens       Int                  @default(0)
+  estimatedCostUsd Float                 @default(0)
+  errorMessage     String?
+  createdAt        DateTime              @default(now())
+  workspace        Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model DetectedRegion {

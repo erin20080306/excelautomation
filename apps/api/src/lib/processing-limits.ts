@@ -23,3 +23,7 @@ export function resolveProcessingLimits(config: ProcessingLimitInput, auth: Proc
     outputMbQuota: inline ? Math.min(auth.outputMbQuota, config.inlineOutputMbQuota) : auth.outputMbQuota
   };
 }
+
+export function resolveBatchFileLimit(processingMode: 'inline' | 'queue', inlineBatchLimit: number, authFileQuota: number): number {
+  return processingMode === 'inline' ? Math.min(inlineBatchLimit, authFileQuota) : authFileQuota;
+}
