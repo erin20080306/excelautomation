@@ -142,7 +142,7 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
   });
 
   app.post('/upload', async (request, reply) => {
-    const limits = resolveProcessingLimits({ processingMode: app.config.PROCESSING_MODE, inlineFileQuota: app.config.TRIAL_MAX_FILES, inlineTotalMbQuota: app.config.TRIAL_MAX_TOTAL_MB, inlineOutputMbQuota: app.config.TRIAL_MAX_OUTPUT_MB }, request.auth);
+    const limits = resolveProcessingLimits({ processingMode: app.config.PROCESSING_MODE, inlineFileQuota: app.config.INLINE_MAX_FILES, inlineTotalMbQuota: app.config.INLINE_MAX_TOTAL_MB, inlineOutputMbQuota: app.config.INLINE_MAX_OUTPUT_MB }, request.auth);
     const { unlimited } = limits;
     const inlineProcessor = limits.inline ? createInlineProcessor(storage, app.config, { unlimited, maxOutputMb: limits.outputMbQuota }) : null;
     const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'excelmaster-upload-'));
@@ -224,7 +224,7 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
       batchName: z.string().trim().min(1).max(100).optional(),
       projectId: z.string().cuid().optional()
     }).parse(request.body);
-    const limits = resolveProcessingLimits({ processingMode: app.config.PROCESSING_MODE, inlineFileQuota: app.config.TRIAL_MAX_FILES, inlineTotalMbQuota: app.config.TRIAL_MAX_TOTAL_MB, inlineOutputMbQuota: app.config.TRIAL_MAX_OUTPUT_MB }, request.auth);
+    const limits = resolveProcessingLimits({ processingMode: app.config.PROCESSING_MODE, inlineFileQuota: app.config.INLINE_MAX_FILES, inlineTotalMbQuota: app.config.INLINE_MAX_TOTAL_MB, inlineOutputMbQuota: app.config.INLINE_MAX_OUTPUT_MB }, request.auth);
     const { unlimited } = limits;
     if (!unlimited && body.sheets.length > limits.fileQuota) throw app.httpErrors.badRequest(`${limits.inline ? '線上版' : '目前方案'}單批最多處理 ${limits.fileQuota} 份試算表`);
     if (body.projectId) {

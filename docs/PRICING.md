@@ -7,10 +7,10 @@
 | 方案 | 月繳 | 年繳 | 使用者／裝置 | 每期安裝包下載 | 適合對象 |
 |---|---:|---:|---:|---:|---|
 | TRIAL | 免費 | — | 1／0 | 0 | 驗證小量 Excel／Google Sheets、智慧表頭與報告預覽 |
-| STARTER 個人版 | NT$990 | NT$9,900 | 1／1 | 2 | 個人、自由工作者，每日多檔合併與圖文 GAS 報告 |
-| PROFESSIONAL 專業版 | NT$2,990 | NT$29,900 | 5／3 | 6 | 小型團隊、背景 Queue、重試、進階規則與資料清理 |
-| BUSINESS 商務版 | NT$7,990 | NT$79,900 | 20／10 | 20 | 部門級角色、S3/API、稽核、下載與裝置管理 |
-| ENTERPRISE 企業授權 | NT$19,900 起 | NT$199,000 起 | 合約約定 | 100 | 大型內部部署、客製協助、優先修補與 SLA |
+| STARTER 個人版 | NT$399 | NT$3,990 | 1／1 | 2 | 個人、自由工作者，每日多檔合併與圖文 GAS 報告 |
+| PROFESSIONAL 專業版 | NT$1,290 | NT$12,900 | 5／3 | 6 | 小型團隊、背景 Queue、重試、進階規則與資料清理 |
+| BUSINESS 商務版 | NT$3,990 | NT$39,900 | 20／10 | 20 | 部門級角色、S3/API、稽核、下載與裝置管理 |
+| ENTERPRISE 企業授權 | NT$9,900 起 | NT$99,000 起 | 合約約定 | 100 | 大型內部部署、客製協助、優先修補與 SLA |
 
 年繳約為十個月月費，保留約 16%–17% 的預付折扣。ENTERPRISE 應採人工報價，不應直接以一般線上刷卡承接未界定的客製或 SLA。
 
@@ -34,10 +34,25 @@
 
 ## 成本與定價依據
 
-- Vercel Pro 官方價格為 USD 20/月並含 USD 20 usage credit；商業服務不應長期依賴只適合個人、非商業用途的 Hobby。[Vercel Pricing](https://vercel.com/pricing)
-- Neon Launch 為用量計價，官方列出的間歇性 1 GB 工作負載典型支出約 USD 15/月，實際會隨 compute 與儲存增加。[Neon Pricing](https://neon.com/pricing)
-- Resend 免費方案為每月 3,000 封、每日 100 封；Pro 為 USD 20/月、50,000 封，超額另計。[Resend Pricing](https://resend.com/pricing)
-- 綠界一般賣家國內信用卡牌價 2.75%（未稅、最低 5 元）另有每筆 1 元處理費；特約費率依審核與合約。[ECPay 費率](https://www.ecpay.com.tw/Business/payment_fees?type=s)
+以下以 2026-06-30 臺灣銀行美元收盤匯率 31.9 粗估；實際帳單會依匯率與用量變動。
+
+| 成本項目 | 官方牌價 | 初期月成本粗估 | 說明 |
+|---|---:|---:|---|
+| Vercel Pro | USD 20／月，含 USD 20 用量額度 | 約 NT$638 | 正式商業前端、API、Parser 與流量；超額用量另計 |
+| Neon Launch | 用量計價，1 GB 間歇工作負載典型 USD 15／月 | 約 NT$479 | 訂閱、稽核、安裝包與工作資料；隨 compute、儲存增加 |
+| Resend Free | 3,000 封／月、每日 100 封 | NT$0 | 初期驗證信與重設密碼可先用免費額度 |
+| Resend Pro | USD 20／月、50,000 封 | 約 NT$638 | 郵件量超過免費額度後才需要 |
+| 綠界國內信用卡 | 2.75% 未稅、每筆最低 5 元，另加 1 元處理費 | 依營收變動 | 服務費另加 5% 營業稅；跨行提領另計 |
+
+初期固定基礎成本約 NT$1,117／月（Vercel Pro＋Neon Launch＋Resend Free）；升級 Email 後約 NT$1,755／月。尚未包含網域、客服工時、退款、會計／發票、備援與大量用量超額。
+
+以一般賣家國內信用卡牌價估算，每筆月費的金流成本約為：STARTER NT$13、PROFESSIONAL NT$38、BUSINESS NT$116、ENTERPRISE NT$287。現行 GAS／Excel 專業報告採規則與統計運算，沒有串接付費 LLM，因此目前沒有每份報告的 AI Token 成本。
+
+- [Vercel Pricing](https://vercel.com/pricing)
+- [Neon Pricing](https://neon.com/pricing)
+- [Resend Pricing](https://resend.com/pricing)
+- [ECPay 費率](https://www.ecpay.com.tw/Business/payment_fees?type=b)
+- [臺灣銀行外幣結帳價格表](https://rate.bot.com.tw/cr?Lang=zh-TW)
 
 建議至少每季檢查雲端、Email、金流、客服與退款成本。若 PROFESSIONAL 使用者需要大量人工資料清理、到場部署或客製 GAS，應另外報價，不應吸收在月費中。
 

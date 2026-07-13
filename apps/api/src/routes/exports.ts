@@ -38,7 +38,7 @@ export async function exportRoutes(app: FastifyInstance, storage: StorageAdapter
   });
 
   app.post('/', async (request, reply) => {
-    const limits = resolveProcessingLimits({ processingMode: app.config.PROCESSING_MODE, inlineFileQuota: app.config.TRIAL_MAX_FILES, inlineTotalMbQuota: app.config.TRIAL_MAX_TOTAL_MB, inlineOutputMbQuota: app.config.TRIAL_MAX_OUTPUT_MB }, request.auth);
+    const limits = resolveProcessingLimits({ processingMode: app.config.PROCESSING_MODE, inlineFileQuota: app.config.INLINE_MAX_FILES, inlineTotalMbQuota: app.config.INLINE_MAX_TOTAL_MB, inlineOutputMbQuota: app.config.INLINE_MAX_OUTPUT_MB }, request.auth);
     const inlineProcessor = limits.inline ? createInlineProcessor(storage, app.config, { unlimited: limits.unlimited, maxOutputMb: limits.outputMbQuota }) : null;
     const body = z.object({ processingJobId: z.string().cuid(), name: z.string().trim().min(2).max(120), config: exportConfig }).parse(request.body);
     const processingJob = await prisma.processingJob.findFirst({ where: { id: body.processingJobId, workspaceId: request.auth.workspaceId }, include: { items: true } });

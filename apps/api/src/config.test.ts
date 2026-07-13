@@ -26,11 +26,15 @@ describe('loadConfig', () => {
       PROCESSING_MODE: 'inline',
       TRIAL_MAX_FILES: '5',
       TRIAL_MAX_TOTAL_MB: '3',
-      TRIAL_MAX_OUTPUT_MB: '4'
+      TRIAL_MAX_OUTPUT_MB: '4',
+      INLINE_MAX_FILES: '10',
+      INLINE_MAX_TOTAL_MB: '3',
+      INLINE_MAX_OUTPUT_MB: '4'
     });
     expect(config.PROCESSING_MODE).toBe('inline');
     expect(config.TRIAL_MAX_FILES).toBe(5);
     expect(config.TRIAL_MAX_TOTAL_MB).toBe(3);
+    expect(config.INLINE_MAX_FILES).toBe(10);
   });
 
   it('treats blank optional service settings as not configured', () => {

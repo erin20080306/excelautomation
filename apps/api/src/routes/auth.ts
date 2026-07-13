@@ -45,9 +45,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     registrationEnabled: identityServicesReady(app.config), captchaRequired: app.config.NODE_ENV === 'production',
     processing: {
       mode: app.config.PROCESSING_MODE,
-      maxFilesPerBatch: app.config.PROCESSING_MODE === 'inline' ? app.config.TRIAL_MAX_FILES : null,
-      maxUploadMb: app.config.PROCESSING_MODE === 'inline' ? Math.min(app.config.MAX_FILE_SIZE_MB, app.config.TRIAL_MAX_TOTAL_MB) : null,
-      maxOutputMb: app.config.PROCESSING_MODE === 'inline' ? app.config.TRIAL_MAX_OUTPUT_MB : null
+      maxFilesPerBatch: app.config.PROCESSING_MODE === 'inline' ? app.config.INLINE_MAX_FILES : null,
+      maxUploadMb: app.config.PROCESSING_MODE === 'inline' ? Math.min(app.config.MAX_FILE_SIZE_MB, app.config.INLINE_MAX_TOTAL_MB) : null,
+      maxOutputMb: app.config.PROCESSING_MODE === 'inline' ? app.config.INLINE_MAX_OUTPUT_MB : null
     }
   }));
 
