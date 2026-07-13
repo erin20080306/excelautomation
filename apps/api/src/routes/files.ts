@@ -16,6 +16,7 @@ import { assertSafeArchivePath, safeFileName } from '../lib/security.js';
 import { writeAudit } from '../lib/audit.js';
 import { createInlineProcessor } from '../lib/processor.js';
 import { hasUnlimitedUsage } from '../lib/access.js';
+import { resolveProcessingLimits } from '../lib/processing-limits.js';
 
 const allowedExtensions = new Set(['.xlsx', '.xlsm', '.xls', '.csv', '.tsv']);
 const allowedMime = new Set([
@@ -141,8 +142,9 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
   });
 
   app.post('/upload', async (request, reply) => {
-    const unlimited = hasUnlimitedUsage(request.auth.platformRole);
-    const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config, { unlimited, maxOutputMb: request.auth.outputMbQuota }) : null;
+    const limits = resolveProcessingLimits({ processingMode: app.config.PROCESSING_MODE, inlineFileQuota: app.config.TRIAL_MAX_FILES, inlineTotalMbQuota: app.config.TRIAL_MAX_TOTAL_MB, inlineOutputMbQuota: app.config.TRIAL_MAX_OUTPUT_MB }, request.auth);
+    const { unlimited } = limits;
+    const inlineProcessor = limits.inline ? createInlineProcessor(storage, app.config, { unlimited, maxOutputMb: limits.outputMbQuota }) : null;
     const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'excelmaster-upload-'));
     const accepted: string[] = [];
     const duplicates: string[] = [];
@@ -165,9 +167,9 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
         try {
           await pipeline(part.file, fs.createWriteStream(incomingPath, { flags: 'wx' }));
           if (part.file.truncated) throw new Error('檔案大小超過限制');
-          if (inlineProcessor && !unlimited) {
+          if (inlineProcessor) {
             uploadedBytes += (await fsp.stat(incomingPath)).size;
-            if (uploadedBytes > request.auth.totalMbQuota * 1024 * 1024) throw new Error(`目前方案單批上傳總量上限為 ${request.auth.totalMbQuota} MB`);
+            if (uploadedBytes > limits.totalMbQuota * 1024 * 1024) throw new Error(`線上版單批上傳總量上限為 ${limits.totalMbQuota} MB；較大批次請使用訂閱安裝版`);
           }
           const candidates = path.extname(incomingName).toLowerCase() === '.zip'
             ? await extractZip(incomingPath, tempDir, app.config.MAX_ZIP_UNCOMPRESSED_MB * 1024 * 1024)
@@ -175,7 +177,7 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
           for (const candidate of candidates) {
             try {
               candidateCount += 1;
-              if (inlineProcessor && !unlimited && candidateCount > request.auth.fileQuota) throw new Error(`目前方案單批最多處理 ${request.auth.fileQuota} 份檔案`);
+              if (inlineProcessor && candidateCount > limits.fileQuota) throw new Error(`線上版單批最多處理 ${limits.fileQuota} 份檔案；較大批次請使用訂閱安裝版`);
               const result = await persistSourceFile({ workspaceId: request.auth.workspaceId, filePath: candidate.path, originalName: candidate.name, originalPath: candidate.originalPath, storage });
               (result.duplicate ? duplicates : accepted).push(result.id);
             } catch (error) {
@@ -199,14 +201,14 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
           return created;
         }, { maxWait: 10_000, timeout: 30_000 });
         if (inlineProcessor) {
-          for (const item of processingJob.items) {
-            try {
-              await inlineProcessor.analyzeItem({ type: 'analyze-file', processingJobId: processingJob.id, itemId: item.id, maxAttempts: 1 });
-            } catch (error) {
-              processingErrors.push({ sourceFileId: item.sourceFileId, error: error instanceof Error ? error.message : '分析失敗' });
-            }
+          const createdJob = processingJob;
+          for (let index = 0; index < createdJob.items.length; index += 3) {
+            await Promise.all(createdJob.items.slice(index, index + 3).map(async (item) => {
+              try { await inlineProcessor.analyzeItem({ type: 'analyze-file', processingJobId: createdJob.id, itemId: item.id, maxAttempts: 1 }); }
+              catch (error) { processingErrors.push({ sourceFileId: item.sourceFileId, error: error instanceof Error ? error.message : '分析失敗' }); }
+            }));
           }
-          processingJob = await prisma.processingJob.findUnique({ where: { id: processingJob.id }, include: { items: true } });
+          processingJob = await prisma.processingJob.findUnique({ where: { id: createdJob.id }, include: { items: true } });
         }
       }
       await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'files.upload', entityType: 'ProcessingJob', entityId: processingJob?.id, metadata: { accepted: accepted.length, duplicates: duplicates.length, rejected: rejected.length }, ipAddress: request.ip });
@@ -222,13 +224,14 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
       batchName: z.string().trim().min(1).max(100).optional(),
       projectId: z.string().cuid().optional()
     }).parse(request.body);
-    const unlimited = hasUnlimitedUsage(request.auth.platformRole);
-    if (!unlimited && body.sheets.length > request.auth.fileQuota) throw app.httpErrors.badRequest(`目前方案單批最多處理 ${request.auth.fileQuota} 份試算表`);
+    const limits = resolveProcessingLimits({ processingMode: app.config.PROCESSING_MODE, inlineFileQuota: app.config.TRIAL_MAX_FILES, inlineTotalMbQuota: app.config.TRIAL_MAX_TOTAL_MB, inlineOutputMbQuota: app.config.TRIAL_MAX_OUTPUT_MB }, request.auth);
+    const { unlimited } = limits;
+    if (!unlimited && body.sheets.length > limits.fileQuota) throw app.httpErrors.badRequest(`${limits.inline ? '線上版' : '目前方案'}單批最多處理 ${limits.fileQuota} 份試算表`);
     if (body.projectId) {
       const project = await prisma.integrationProject.findFirst({ where: { id: body.projectId, workspaceId: request.auth.workspaceId } });
       if (!project) throw app.httpErrors.badRequest('整合專案不存在');
     }
-    const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config, { unlimited, maxOutputMb: request.auth.outputMbQuota }) : null;
+    const inlineProcessor = limits.inline ? createInlineProcessor(storage, app.config, { unlimited, maxOutputMb: limits.outputMbQuota }) : null;
     const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'excelmaster-google-'));
     const accepted: string[] = [];
     const duplicates: string[] = [];
@@ -240,8 +243,8 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
         const label = safeFileName(`${sheet.name?.replace(/\.xlsx$/i, '') || `Google_Sheet_${index + 1}`}.xlsx`);
         const target = path.join(tempDir, `${nanoid()}.xlsx`);
         try {
-          const remaining = unlimited ? app.config.MAX_FILE_SIZE_MB * 1024 * 1024 : request.auth.totalMbQuota * 1024 * 1024 - downloadedBytes;
-          if (remaining <= 0) throw new Error(`目前方案單批總量上限為 ${request.auth.totalMbQuota} MB`);
+          const remaining = unlimited ? app.config.MAX_FILE_SIZE_MB * 1024 * 1024 : limits.totalMbQuota * 1024 * 1024 - downloadedBytes;
+          if (remaining <= 0) throw new Error(`${limits.inline ? '線上版' : '目前方案'}單批總量上限為 ${limits.totalMbQuota} MB`);
           await downloadPublicGoogleSheet(sheet.url, target, Math.min(app.config.MAX_FILE_SIZE_MB * 1024 * 1024, remaining));
           downloadedBytes += (await fsp.stat(target)).size;
           const result = await persistSourceFile({ workspaceId: request.auth.workspaceId, filePath: target, originalName: label, originalPath: sheet.url, storage });
@@ -259,14 +262,14 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
           return created;
         }, { maxWait: 10_000, timeout: 30_000 });
         if (inlineProcessor) {
-          for (const item of processingJob.items) {
-            try {
-              await inlineProcessor.analyzeItem({ type: 'analyze-file', processingJobId: processingJob.id, itemId: item.id, maxAttempts: 1 });
-            } catch (error) {
-              processingErrors.push({ sourceFileId: item.sourceFileId, error: error instanceof Error ? error.message : '分析失敗' });
-            }
+          const createdJob = processingJob;
+          for (let index = 0; index < createdJob.items.length; index += 3) {
+            await Promise.all(createdJob.items.slice(index, index + 3).map(async (item) => {
+              try { await inlineProcessor.analyzeItem({ type: 'analyze-file', processingJobId: createdJob.id, itemId: item.id, maxAttempts: 1 }); }
+              catch (error) { processingErrors.push({ sourceFileId: item.sourceFileId, error: error instanceof Error ? error.message : '分析失敗' }); }
+            }));
           }
-          processingJob = await prisma.processingJob.findUnique({ where: { id: processingJob.id }, include: { items: true } });
+          processingJob = await prisma.processingJob.findUnique({ where: { id: createdJob.id }, include: { items: true } });
         }
       }
       await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'google_sheets.import', entityType: 'ProcessingJob', entityId: processingJob?.id, metadata: { accepted: accepted.length, duplicates: duplicates.length, rejected: rejected.length }, ipAddress: request.ip });

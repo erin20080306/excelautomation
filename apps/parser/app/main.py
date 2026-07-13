@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from .analyzer import analyze_file
 from .exporter import create_export
 
-app = FastAPI(title="ExcelMaster Parser", version="1.0.0", docs_url="/docs" if os.getenv("NODE_ENV") != "production" else None)
+app = FastAPI(title="ExcelMaster Parser", version="1.1.0", docs_url="/docs" if os.getenv("NODE_ENV") != "production" else None)
 MAX_BYTES = int(os.getenv("MAX_FILE_SIZE_MB", "50")) * 1024 * 1024
 
 
@@ -33,8 +33,12 @@ def require_parser_secret(x_excelmaster_parser_secret: str | None = Header(defau
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, str | list[str]]:
+    return {
+        "status": "ok",
+        "version": app.version,
+        "features": ["smart_headers", "professional_xlsx", "image_analysis"],
+    }
 
 
 @app.post("/analyze", dependencies=[Depends(require_parser_secret)])

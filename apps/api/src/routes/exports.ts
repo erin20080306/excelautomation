@@ -6,7 +6,7 @@ import type { StorageAdapter } from '../lib/storage.js';
 import { signDownload, verifyDownload } from '../lib/security.js';
 import { writeAudit } from '../lib/audit.js';
 import { createInlineProcessor } from '../lib/processor.js';
-import { hasUnlimitedUsage } from '../lib/access.js';
+import { resolveProcessingLimits } from '../lib/processing-limits.js';
 
 const exportConfig = z.object({
   separateFiles: z.boolean().default(false),
@@ -38,8 +38,8 @@ export async function exportRoutes(app: FastifyInstance, storage: StorageAdapter
   });
 
   app.post('/', async (request, reply) => {
-    const unlimited = hasUnlimitedUsage(request.auth.platformRole);
-    const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config, { unlimited, maxOutputMb: request.auth.outputMbQuota }) : null;
+    const limits = resolveProcessingLimits({ processingMode: app.config.PROCESSING_MODE, inlineFileQuota: app.config.TRIAL_MAX_FILES, inlineTotalMbQuota: app.config.TRIAL_MAX_TOTAL_MB, inlineOutputMbQuota: app.config.TRIAL_MAX_OUTPUT_MB }, request.auth);
+    const inlineProcessor = limits.inline ? createInlineProcessor(storage, app.config, { unlimited: limits.unlimited, maxOutputMb: limits.outputMbQuota }) : null;
     const body = z.object({ processingJobId: z.string().cuid(), name: z.string().trim().min(2).max(120), config: exportConfig }).parse(request.body);
     const processingJob = await prisma.processingJob.findFirst({ where: { id: body.processingJobId, workspaceId: request.auth.workspaceId }, include: { items: true } });
     if (!processingJob) throw app.httpErrors.notFound('找不到處理批次');

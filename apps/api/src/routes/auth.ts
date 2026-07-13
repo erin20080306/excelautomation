@@ -41,7 +41,15 @@ async function sendVerification(app: FastifyInstance, user: { id: string; email:
 }
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/capabilities', async () => ({ registrationEnabled: identityServicesReady(app.config), captchaRequired: app.config.NODE_ENV === 'production' }));
+  app.get('/capabilities', async () => ({
+    registrationEnabled: identityServicesReady(app.config), captchaRequired: app.config.NODE_ENV === 'production',
+    processing: {
+      mode: app.config.PROCESSING_MODE,
+      maxFilesPerBatch: app.config.PROCESSING_MODE === 'inline' ? app.config.TRIAL_MAX_FILES : null,
+      maxUploadMb: app.config.PROCESSING_MODE === 'inline' ? Math.min(app.config.MAX_FILE_SIZE_MB, app.config.TRIAL_MAX_TOTAL_MB) : null,
+      maxOutputMb: app.config.PROCESSING_MODE === 'inline' ? app.config.TRIAL_MAX_OUTPUT_MB : null
+    }
+  }));
 
   app.post('/register', async (request, reply) => {
     if (!identityServicesReady(app.config)) return reply.code(503).send({ message: '公開註冊尚未啟用，請聯絡管理者設定驗證服務' });

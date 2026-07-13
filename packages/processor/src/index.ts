@@ -387,7 +387,7 @@ export function createTaskProcessor(options: TaskProcessorOptions): TaskProcesso
       }
       const response = await axios.post(`${parserUrl}/export`, { name: exportJob.name, config: exportJob.config, analyses, dataSets }, { headers: parserHeaders(options.parserSecret), responseType: 'arraybuffer', timeout, maxBodyLength: Infinity, maxContentLength: Infinity });
       const bytes = Buffer.from(response.data);
-      if (options.maxOutputBytes && bytes.length > options.maxOutputBytes) throw new Error('試用版輸出超過大小限制，請使用下載包處理完整資料');
+      if (options.maxOutputBytes && bytes.length > options.maxOutputBytes) throw new Error('線上版輸出超過大小限制，請縮小單批資料或使用訂閱安裝版');
       await fsp.writeFile(output, bytes);
       const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
       const storageKey = `${exportJob.workspaceId}/exports/${exportJob.id}/${Date.now()}.xlsx`;

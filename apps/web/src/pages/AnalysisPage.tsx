@@ -42,6 +42,15 @@ export function AnalysisPage() {
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const files = useQuery({ queryKey: ['files'], queryFn: async () => (await api.get('/files')).data, refetchInterval: 15_000 });
   const projects = useQuery({ queryKey: ['projects'], queryFn: async () => (await api.get('/projects', { params: { pageSize: 100 } })).data });
+  const capabilities = useQuery({ queryKey: ['auth-capabilities'], queryFn: async () => (await api.get('/auth/capabilities')).data });
+  const infrastructure = capabilities.data?.processing;
+  const effectiveFileQuota = typeof infrastructure?.maxFilesPerBatch === 'number'
+    ? Math.min(fileQuota, infrastructure.maxFilesPerBatch)
+    : hasUnlimitedAccess ? Number.POSITIVE_INFINITY : fileQuota;
+  const effectiveTotalMbQuota = typeof infrastructure?.maxUploadMb === 'number'
+    ? Math.min(totalMbQuota, infrastructure.maxUploadMb)
+    : hasUnlimitedAccess ? Number.POSITIVE_INFINITY : totalMbQuota;
+  const onlineLimited = infrastructure?.mode === 'inline';
   const addFiles = (list: FileList | null) => {
     if (!list) return;
     setSelected((current) => [...current, ...Array.from(list)].filter((file, index, all) => all.findIndex((candidate) => candidate.name === file.name && candidate.size === file.size) === index));
@@ -88,8 +97,8 @@ export function AnalysisPage() {
     if (!sourceCount) return;
     setNotice(null);
     setProgress(0);
-    if (!hasUnlimitedAccess && sourceCount > fileQuota) {
-      setNotice({ type: 'error', text: `目前方案單批最多 ${fileQuota} 份試算表。` });
+    if (sourceCount > effectiveFileQuota) {
+      setNotice({ type: 'error', text: `${onlineLimited ? '線上版' : '目前方案'}單批最多 ${effectiveFileQuota} 份試算表；較大批次請使用訂閱安裝版。` });
       setProgress(null);
       return;
     }
@@ -97,7 +106,7 @@ export function AnalysisPage() {
       let result: any;
       if (sourceMode === 'files') {
         const totalBytes = selected.reduce((sum, file) => sum + file.size, 0);
-        if (!hasUnlimitedAccess && totalBytes > totalMbQuota * 1024 * 1024) throw new Error(`目前方案單批總上傳量上限為 ${totalMbQuota} MB。`);
+        if (totalBytes > effectiveTotalMbQuota * 1024 * 1024) throw new Error(`${onlineLimited ? '線上版' : '目前方案'}單批總上傳量上限為 ${effectiveTotalMbQuota} MB；較大批次請使用訂閱安裝版。`);
         const form = new FormData();
         selected.forEach((file) => form.append('files', file, (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name));
         if (batchName.trim()) form.append('batchName', batchName.trim());
@@ -111,7 +120,10 @@ export function AnalysisPage() {
         const details = result.rejected?.map((item: any) => `${item.name}：${item.error}`).join('；');
         throw new Error(details || '沒有可處理的試算表');
       }
-      if (result.processingErrors?.length) throw new Error(`有 ${result.processingErrors.length} 份分析失敗，請查看處理進度。`);
+      if (result.processingErrors?.length) {
+        const details = result.processingErrors.slice(0, 3).map((item: any) => item.error).join('；');
+        throw new Error(`有 ${result.processingErrors.length} 份分析失敗：${details || '請查看處理進度'}`);
+      }
       await createOutput(result.job);
       setSelected([]);
       setGoogleLinks('');
@@ -164,9 +176,9 @@ export function AnalysisPage() {
             <div><label className="label">自動化流程（選填）</label><select className="input" value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">智慧合併，不套固定模板</option>{projects.data?.items.map((project: any) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></div>
             <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-3 text-sm text-slate-600"><input className="mt-1" type="checkbox" checked={keepSourceSheets} onChange={(event) => setKeepSourceSheets(event.target.checked)} /><span><span className="block font-bold text-slate-700">另外保留每張來源工作表</span><span className="mt-1 block text-xs text-slate-400">預設只產生乾淨的整合總表與分析頁，避免新檔過於雜亂。</span></span></label>
             <label className="flex items-start gap-3 rounded-xl border-2 border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"><input className="mt-1 accent-blue-600" type="checkbox" checked={includeGasReport} onChange={(event) => setIncludeGasReport(event.target.checked)} /><span><span className="block font-black">同時產生專業 GAS 圖文報告（預設開啟）</span><span className="mt-1 block text-xs leading-5 text-blue-700">輸出可下載的 <strong>.gs</strong> 檔；可一鍵建立新 Google Sheet、專業分析儀表板、統計圖表、圖片欄位預覽，並可加入封面圖或 Logo。</span></span></label>
-            <div className="rounded-xl bg-slate-50 p-3"><div className="flex items-center justify-between text-sm"><span className="font-semibold text-slate-600">已加入</span><span className="font-black text-ink">{sourceCount} / {hasUnlimitedAccess ? '無產品配額' : fileQuota}</span></div>{sourceMode === 'files' && selected.length > 0 && <div className="mt-2 max-h-20 overflow-y-auto text-xs text-slate-500">{selected.slice(0, 8).map((file) => <p className="truncate py-0.5" key={`${file.name}-${file.size}`}>{file.name}</p>)}</div>}</div>
+            <div className="rounded-xl bg-slate-50 p-3"><div className="flex items-center justify-between text-sm"><span className="font-semibold text-slate-600">已加入</span><span className="font-black text-ink">{sourceCount} / {Number.isFinite(effectiveFileQuota) ? effectiveFileQuota : '無產品配額'}</span></div>{onlineLimited && <p className="mt-1 text-[11px] leading-5 text-amber-700">Vercel 線上版硬性上限：單批 {effectiveFileQuota} 份、共 {effectiveTotalMbQuota} MB、輸出 {infrastructure?.maxOutputMb} MB；SUPERADMIN 也不能略過。</p>}{sourceMode === 'files' && selected.length > 0 && <div className="mt-2 max-h-20 overflow-y-auto text-xs text-slate-500">{selected.slice(0, 8).map((file) => <p className="truncate py-0.5" key={`${file.name}-${file.size}`}>{file.name}</p>)}</div>}</div>
             {progress != null && <div><div className="mb-1 flex justify-between text-xs text-slate-500"><span>{progress < 90 ? '匯入中' : '正在建立新檔與報告'}</span><span>{progress}%</span></div><div className="h-2 rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${progress}%` }} /></div></div>}
-            <button className="btn-primary w-full" onClick={run} disabled={!sourceCount || progress != null}><Sparkles size={17} />開始智慧整合並建立新檔</button>
+            <button className="btn-primary w-full" onClick={run} disabled={!sourceCount || progress != null || capabilities.isLoading}><Sparkles size={17} />{capabilities.isLoading ? '讀取線上處理上限…' : '開始智慧整合並建立新檔'}</button>
             <div className="grid grid-cols-3 gap-2 text-center text-[11px] text-slate-500"><span className="rounded-lg bg-emerald-50 p-2"><CheckCircle2 className="mx-auto mb-1 text-emerald-600" size={15} />整合 Excel</span><span className="rounded-lg bg-emerald-50 p-2"><Download className="mx-auto mb-1 text-emerald-600" size={15} />專業分析</span><span className={`rounded-lg p-2 ${includeGasReport ? 'bg-blue-50 font-bold text-blue-700' : 'bg-slate-50 text-slate-300'}`}><FileCheck2 className="mx-auto mb-1" size={15} />GAS 報告</span></div>
           </div>
         </div>
