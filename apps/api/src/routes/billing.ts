@@ -3,7 +3,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { createEcpayCheckMacValue, ecpayCheckoutUrl, verifyEcpayCheckMacValue, type EcpayFields } from '../lib/ecpay.js';
-import { PLAN_CATALOG, PLAN_ORDER, type PlanKey } from '../lib/plans.js';
+import { PLAN_CATALOG, PLAN_ORDER, priceForPlan, type PaidPlanKey, type PlanKey } from '../lib/plans.js';
+import { addBillingPeriod, paidSubscriptionActive } from '../lib/subscription.js';
 
 const paidPlan = z.enum(['STARTER', 'PROFESSIONAL', 'BUSINESS', 'ENTERPRISE']);
 
@@ -25,35 +26,49 @@ function newMerchantTradeNo(): string {
 }
 
 async function markOrderPaid(input: { orderId: string; provider: string; providerSessionId: string; providerPaymentId: string; amountTwd: number }): Promise<boolean> {
-  const order = await prisma.paymentOrder.findUnique({ where: { id: input.orderId } });
+  const order = await prisma.paymentOrder.findUnique({ where: { id: input.orderId }, include: { workspace: true } });
   if (!order || order.provider !== input.provider || order.providerSessionId !== input.providerSessionId || order.amountTwd !== input.amountTwd) return false;
   const plan = order.plan as PlanKey;
   const catalog = PLAN_CATALOG[plan];
   return prisma.$transaction(async (tx) => {
     const claimed = await tx.paymentOrder.updateMany({ where: { id: order.id, status: 'PENDING' }, data: { status: 'PAID', paidAt: new Date(), providerPaymentId: input.providerPaymentId } });
     if (!claimed.count) return order.status === 'PAID';
-    await tx.workspace.update({ where: { id: order.workspaceId }, data: { plan, fileQuota: catalog.fileQuota, totalMbQuota: catalog.totalMbQuota, outputMbQuota: catalog.outputMbQuota, downloadQuota: catalog.downloadQuota } });
-    await tx.platformAudit.create({ data: { actorUserId: order.userId, action: 'billing.order.paid', entityType: 'PaymentOrder', entityId: order.id, metadata: { plan, amountTwd: order.amountTwd, provider: input.provider, providerSessionId: input.providerSessionId } } });
+    const paidAt = new Date();
+    const renewsCurrentPlan = order.workspace.plan === plan && paidSubscriptionActive(order.workspace, paidAt);
+    const periodStart = renewsCurrentPlan ? order.workspace.subscriptionEndsAt! : paidAt;
+    const periodEnd = addBillingPeriod(periodStart, order.billingInterval);
+    await tx.workspace.update({ where: { id: order.workspaceId }, data: {
+      plan, fileQuota: catalog.fileQuota, totalMbQuota: catalog.totalMbQuota, outputMbQuota: catalog.outputMbQuota, downloadQuota: catalog.downloadQuota,
+      subscriptionStatus: 'ACTIVE', subscriptionInterval: order.billingInterval,
+      subscriptionStartedAt: renewsCurrentPlan ? order.workspace.subscriptionStartedAt : paidAt,
+      subscriptionEndsAt: periodEnd, subscriptionGraceEndsAt: null
+    } });
+    await tx.platformAudit.create({ data: { actorUserId: order.userId, action: 'billing.order.paid', entityType: 'PaymentOrder', entityId: order.id, metadata: { plan, interval: order.billingInterval, subscriptionEndsAt: periodEnd.toISOString(), amountTwd: order.amountTwd, provider: input.provider, providerSessionId: input.providerSessionId } } });
     return true;
   });
 }
 
 export async function billingRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/plans', async () => ({ items: PLAN_ORDER.map((key) => ({ key, ...PLAN_CATALOG[key] })) }));
+  app.get('/plans', async () => ({
+    checkoutEnabled: app.config.PAYMENTS_ENABLED && (ecpayReady(app) || Boolean(app.config.STRIPE_SECRET_KEY)),
+    paymentNotice: '付款連結準備中；目前只能由平台管理者建立或調整訂閱。',
+    items: PLAN_ORDER.map((key) => ({ key, ...PLAN_CATALOG[key] }))
+  }));
 
   app.post('/checkout', { preHandler: app.authenticate }, async (request, reply) => {
-    const { plan } = z.object({ plan: paidPlan }).parse(request.body);
-    if (PLAN_ORDER.indexOf(plan) <= PLAN_ORDER.indexOf(request.auth.workspacePlan)) return reply.code(400).send({ message: '只能購買高於目前方案的升級方案' });
+    if (!app.config.PAYMENTS_ENABLED) return reply.code(503).send({ message: '付款連結尚未開放；方案與價格可先查看，正式付款網址將另行補上' });
+    const { plan, billingInterval } = z.object({ plan: paidPlan, billingInterval: z.enum(['MONTHLY', 'YEARLY']).default('MONTHLY') }).parse(request.body);
     const catalog = PLAN_CATALOG[plan];
+    const amountTwd = priceForPlan(plan as PaidPlanKey, billingInterval);
 
     if (ecpayReady(app)) {
       if (plan === 'ENTERPRISE') return reply.code(400).send({ message: '企業授權版超過一般線上刷卡單筆上限，請由管理者建立報價與人工付款訂單' });
       const merchantTradeNo = newMerchantTradeNo();
-      const order = await prisma.paymentOrder.create({ data: { userId: request.auth.userId, workspaceId: request.auth.workspaceId, plan, amountTwd: catalog.priceTwd, provider: 'ecpay', providerSessionId: merchantTradeNo, expiresAt: new Date(Date.now() + 24 * 60 * 60_000) } });
+      const order = await prisma.paymentOrder.create({ data: { userId: request.auth.userId, workspaceId: request.auth.workspaceId, plan, billingInterval, amountTwd, provider: 'ecpay', providerSessionId: merchantTradeNo, expiresAt: new Date(Date.now() + 24 * 60 * 60_000) } });
       const fields: EcpayFields = {
         MerchantID: app.config.ECPAY_MERCHANT_ID!, MerchantTradeNo: merchantTradeNo, MerchantTradeDate: taipeiDate(),
-        PaymentType: 'aio', TotalAmount: String(catalog.priceTwd), TradeDesc: 'ExcelMaster software license',
-        ItemName: `ExcelMaster ${catalog.name}`, ReturnURL: `${request.protocol}://${request.host}/api/billing/ecpay/notify`,
+        PaymentType: 'aio', TotalAmount: String(amountTwd), TradeDesc: 'ExcelMaster subscription',
+        ItemName: `ExcelMaster ${catalog.name} ${billingInterval}`, ReturnURL: `${request.protocol}://${request.host}/api/billing/ecpay/notify`,
         ChoosePayment: 'Credit', EncryptType: '1', NeedExtraPaidInfo: 'N', ClientBackURL: `${app.config.APP_URL}/billing?order_id=${encodeURIComponent(order.id)}`
       };
       fields.CheckMacValue = createEcpayCheckMacValue(fields, app.config.ECPAY_HASH_KEY!, app.config.ECPAY_HASH_IV!);
@@ -62,7 +77,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
     if (!app.config.STRIPE_SECRET_KEY) return reply.code(503).send({ message: '付款服務尚未啟用；台灣商家請設定綠界 ECPay 商店金鑰' });
     const user = await prisma.user.findUniqueOrThrow({ where: { id: request.auth.userId } });
-    const order = await prisma.paymentOrder.create({ data: { userId: request.auth.userId, workspaceId: request.auth.workspaceId, plan, amountTwd: catalog.priceTwd, provider: 'stripe', expiresAt: new Date(Date.now() + 24 * 60 * 60_000) } });
+    const order = await prisma.paymentOrder.create({ data: { userId: request.auth.userId, workspaceId: request.auth.workspaceId, plan, billingInterval, amountTwd, provider: 'stripe', expiresAt: new Date(Date.now() + 24 * 60 * 60_000) } });
     const form = new URLSearchParams();
     form.set('mode', 'payment');
     form.set('success_url', `${app.config.APP_URL}/billing?success=1&session_id={CHECKOUT_SESSION_ID}`);
@@ -71,11 +86,12 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     form.set('customer_email', user.email);
     form.set('line_items[0][quantity]', '1');
     form.set('line_items[0][price_data][currency]', 'twd');
-    form.set('line_items[0][price_data][unit_amount]', String(catalog.priceTwd * 100));
-    form.set('line_items[0][price_data][product_data][name]', `ExcelMaster ${catalog.name}`);
+    form.set('line_items[0][price_data][unit_amount]', String(amountTwd * 100));
+    form.set('line_items[0][price_data][product_data][name]', `ExcelMaster ${catalog.name} ${billingInterval}`);
     form.set('metadata[order_id]', order.id);
     form.set('metadata[workspace_id]', order.workspaceId);
     form.set('metadata[plan]', plan);
+    form.set('metadata[billing_interval]', billingInterval);
     const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
       method: 'POST', headers: { authorization: `Bearer ${app.config.STRIPE_SECRET_KEY}`, 'content-type': 'application/x-www-form-urlencoded', 'idempotency-key': order.id }, body: form
     });

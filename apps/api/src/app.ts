@@ -16,6 +16,7 @@ import { exportRoutes } from './routes/exports.js';
 import { adminRoutes } from './routes/admin.js';
 import { billingRoutes, billingWebhookRoutes } from './routes/billing.js';
 import { downloadRoutes } from './routes/downloads.js';
+import { createInstalledLicenseGuard } from './lib/installed-license.js';
 
 export async function buildApp(existingApp?: FastifyInstance): Promise<FastifyInstance> {
   const config = loadConfig();
@@ -29,6 +30,8 @@ export async function buildApp(existingApp?: FastifyInstance): Promise<FastifyIn
   });
 
   app.decorate('config', config);
+  const verifyInstalledLicense = createInstalledLicenseGuard(config);
+  if (config.LICENSE_ENFORCEMENT) await verifyInstalledLicense(true);
   await app.register(sensible);
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
@@ -39,6 +42,7 @@ export async function buildApp(existingApp?: FastifyInstance): Promise<FastifyIn
     preservePath: true
   });
   await app.register(authPlugin);
+  app.addHook('onRequest', async () => verifyInstalledLicense());
 
   app.addHook('preSerialization', async (_request, _reply, payload) => {
     const convert = (value: unknown): unknown => {

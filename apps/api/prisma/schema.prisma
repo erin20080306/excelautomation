@@ -45,6 +45,27 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+  MANUAL
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+  SUSPENDED
+}
+
+enum LicenseStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+}
+
 enum SourceKind {
   UPLOAD
   FOLDER
@@ -89,59 +110,66 @@ enum ExportStatus {
 }
 
 model User {
-  id                 String            @id @default(cuid())
-  email              String            @unique
+  id                 String              @id @default(cuid())
+  email              String              @unique
   passwordHash       String
   name               String
-  platformRole       PlatformRole      @default(USER)
-  status             AccountStatus     @default(PENDING_VERIFICATION)
+  platformRole       PlatformRole        @default(USER)
+  status             AccountStatus       @default(PENDING_VERIFICATION)
   emailVerifiedAt    DateTime?
-  failedLoginCount   Int               @default(0)
+  failedLoginCount   Int                 @default(0)
   lockedUntil        DateTime?
   mfaSecretEncrypted String?
   mfaEnabledAt       DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
   memberships        WorkspaceMember[]
   auditLogs          AuditLog[]
-  templatesCreated   ParsingTemplate[] @relation("TemplateCreator")
+  templatesCreated   ParsingTemplate[]   @relation("TemplateCreator")
   authTokens         AuthToken[]
   packageDownloads   PackageDownload[]
-  platformAudits     PlatformAudit[]   @relation("PlatformAuditActor")
+  platformAudits     PlatformAudit[]     @relation("PlatformAuditActor")
   paymentOrders      PaymentOrder[]
+  licenseActivations LicenseActivation[]
 }
 
 model Workspace {
-  id               String               @id @default(cuid())
-  name             String
-  plan             WorkspacePlan        @default(TRIAL)
-  suspendedAt      DateTime?
-  fileQuota        Int                  @default(5)
-  totalMbQuota     Float                @default(3)
-  outputMbQuota    Float                @default(4)
-  downloadQuota    Int                  @default(0)
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  members          WorkspaceMember[]
-  dataSources      DataSource[]
-  automationRules  AutomationRule[]
-  projects         IntegrationProject[]
-  reportTypes      ReportType[]
-  schemas          DynamicSchema[]
-  mappingRules     MappingRule[]
-  cleaningRules    CleaningRule[]
-  mergeRules       MergeRule[]
-  sourceFiles      SourceFile[]
-  processingJobs   ProcessingJob[]
-  reviewTasks      ReviewTask[]
-  templates        ParsingTemplate[]
-  exportJobs       ExportJob[]
-  auditLogs        AuditLog[]
-  notifications    Notification[]
-  settings         AppSetting[]
-  storedObjects    StoredObject[]
-  packageDownloads PackageDownload[]
-  paymentOrders    PaymentOrder[]
+  id                      String               @id @default(cuid())
+  name                    String
+  plan                    WorkspacePlan        @default(TRIAL)
+  suspendedAt             DateTime?
+  fileQuota               Int                  @default(5)
+  totalMbQuota            Float                @default(3)
+  outputMbQuota           Float                @default(4)
+  downloadQuota           Int                  @default(0)
+  subscriptionStatus      SubscriptionStatus   @default(TRIALING)
+  subscriptionInterval    BillingInterval?
+  subscriptionStartedAt   DateTime?
+  subscriptionEndsAt      DateTime?
+  subscriptionGraceEndsAt DateTime?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  members                 WorkspaceMember[]
+  dataSources             DataSource[]
+  automationRules         AutomationRule[]
+  projects                IntegrationProject[]
+  reportTypes             ReportType[]
+  schemas                 DynamicSchema[]
+  mappingRules            MappingRule[]
+  cleaningRules           CleaningRule[]
+  mergeRules              MergeRule[]
+  sourceFiles             SourceFile[]
+  processingJobs          ProcessingJob[]
+  reviewTasks             ReviewTask[]
+  templates               ParsingTemplate[]
+  exportJobs              ExportJob[]
+  auditLogs               AuditLog[]
+  notifications           Notification[]
+  settings                AppSetting[]
+  storedObjects           StoredObject[]
+  packageDownloads        PackageDownload[]
+  paymentOrders           PaymentOrder[]
+  licenseActivations      LicenseActivation[]
 }
 
 model AuthToken {
@@ -177,43 +205,70 @@ model ReleaseArtifact {
 }
 
 model PaymentOrder {
-  id                String        @id @default(cuid())
+  id                String          @id @default(cuid())
   userId            String
   workspaceId       String
   plan              WorkspacePlan
   amountTwd         Int
-  status            PaymentStatus @default(PENDING)
-  provider          String        @default("stripe")
-  providerSessionId String?       @unique
+  billingInterval   BillingInterval @default(MONTHLY)
+  status            PaymentStatus   @default(PENDING)
+  provider          String          @default("stripe")
+  providerSessionId String?         @unique
   providerPaymentId String?
   paidAt            DateTime?
   expiresAt         DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace         Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, createdAt])
   @@index([status, createdAt])
 }
 
 model PackageDownload {
-  id          String          @id @default(cuid())
-  releaseId   String
-  userId      String
-  workspaceId String
-  tokenHash   String          @unique
-  expiresAt   DateTime
-  usedAt      DateTime?
-  requestedAt DateTime        @default(now())
-  ipAddress   String?
-  userAgent   String?
-  release     ReleaseArtifact @relation(fields: [releaseId], references: [id], onDelete: Cascade)
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                String             @id @default(cuid())
+  releaseId         String
+  userId            String
+  workspaceId       String
+  tokenHash         String             @unique
+  expiresAt         DateTime
+  usedAt            DateTime?
+  requestedAt       DateTime           @default(now())
+  ipAddress         String?
+  userAgent         String?
+  release           ReleaseArtifact    @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  licenseActivation LicenseActivation?
 
   @@index([userId, releaseId, requestedAt])
   @@index([workspaceId, requestedAt])
+}
+
+model LicenseActivation {
+  id          String          @id @default(cuid())
+  workspaceId String
+  userId      String
+  downloadId  String          @unique
+  codeHash    String          @unique
+  codeLast4   String
+  platform    ReleasePlatform
+  status      LicenseStatus   @default(PENDING)
+  deviceHash  String?
+  deviceName  String?
+  activatedAt DateTime?
+  lastSeenAt  DateTime?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  download    PackageDownload @relation(fields: [downloadId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, lastSeenAt])
+  @@index([deviceHash])
 }
 
 model PlatformAudit {

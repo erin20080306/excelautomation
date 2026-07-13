@@ -23,7 +23,7 @@ Vercel Function request/response payload 有 4.5 MB 限制，Hobby Fluid Compute
 
 ## 1. Neon
 
-Web 專案已透過 Vercel Marketplace 連接 Neon，Production 環境包含 `DATABASE_URL` 與 `DATABASE_URL_UNPOOLED`。Schema 使用：
+Web 專案已透過 Vercel Marketplace 連接 Neon，Production 環境包含 `DATABASE_URL` 與 `DATABASE_URL_UNPOOLED`。API 的 Vercel build 會先執行 idempotent `db:deploy:safe`，新增訂閱／裝置欄位與索引且不刪除既有資料；首次部署或需要人工核對時仍可使用：
 
 ```bash
 node --env-file=.env.production ./node_modules/prisma/build/index.js db push --schema apps/api/prisma/schema.prisma
@@ -71,6 +71,7 @@ TRIAL_MAX_FILES=5
 TRIAL_MAX_TOTAL_MB=3
 TRIAL_MAX_OUTPUT_MB=4
 APP_URL=https://excelautomation-api-seven.vercel.app
+PAYMENTS_ENABLED=false
 TURNSTILE_SECRET_KEY=<Cloudflare Turnstile secret>
 RESEND_API_KEY=<Resend API key>
 MAIL_FROM=ExcelMaster <no-reply@你的已驗證網域>
@@ -106,6 +107,25 @@ Root Directory 必須為 `.`，Build Command 為 `npm run build:web`，Output Di
 6. 超過 5 份或 3 MB 時，前端與 API 都必須拒絕並顯示試用限制。
 7. Parser 缺少共享密鑰時必須拒絕分析與匯出。
 
-## 下載包
+## 下載包與安裝版授權
 
-頁首「下載完整版」連結指向目前 GitHub 分支 ZIP。下載後可透過 `docker compose` 啟動完整 API、Worker、Parser 與 PostgreSQL Queue；正式大量檔案建議將 Storage Adapter 改成私有 S3 相容儲存。
+不可再將頁首下載按鈕直接指向公開 GitHub ZIP。正式流程是：
+
+1. 在乾淨、已提交的 release commit 執行 `scripts/build-release.ps1` 或 `scripts/build-release.sh`。
+2. `scripts/verify-release.mjs` 確認必要說明書、manifest、正確平台安裝程式、無 `.git`／`.env`／`node_modules`，並計算 SHA-256。
+3. SUPERADMIN 在平台後台上傳 ZIP；資料保存在私有 `ReleaseArtifact`。
+4. 訂閱有效的使用者按下載後，API 建立 10 分鐘、只能使用一次的網址與只顯示一次的啟用碼。
+5. 安裝程式必須先呼叫授權服務綁定裝置，再建置 Docker；本機 API 每 15 分鐘重新驗證。
+
+安裝版 `.env` 會包含：
+
+```text
+LICENSE_ENFORCEMENT=true
+LICENSE_SERVER_URL=https://excelautomation-backend.vercel.app
+LICENSE_ACTIVATION_CODE=<只顯示一次的高熵啟用碼>
+LICENSE_DEVICE_ID=<安裝程式產生的裝置雜湊識別>
+LICENSE_CHECK_INTERVAL_MINUTES=15
+LICENSE_OFFLINE_GRACE_HOURS=24
+```
+
+中央雲端 API 必須保持 `LICENSE_ENFORCEMENT=false`，避免授權服務遞迴驗證自己。付款連結準備完成前保持 `PAYMENTS_ENABLED=false`。

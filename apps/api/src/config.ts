@@ -8,6 +8,7 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(4000),
   WEB_ORIGIN: z.string().url().default('http://localhost:5173'),
   APP_URL: z.string().url().default('http://localhost:5173'),
+  PAYMENTS_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   TURNSTILE_SECRET_KEY: z.string().min(10).optional(),
   RESEND_API_KEY: z.string().min(10).optional(),
   MAIL_FROM: z.string().min(3).optional(),
@@ -17,6 +18,12 @@ const envSchema = z.object({
   ECPAY_HASH_KEY: z.string().min(8).optional(),
   ECPAY_HASH_IV: z.string().min(8).optional(),
   ECPAY_TEST_MODE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  LICENSE_ENFORCEMENT: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  LICENSE_SERVER_URL: z.string().url().optional(),
+  LICENSE_ACTIVATION_CODE: z.string().min(24).max(120).optional(),
+  LICENSE_DEVICE_ID: z.string().min(12).max(200).optional(),
+  LICENSE_CHECK_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(60).default(15),
+  LICENSE_OFFLINE_GRACE_HOURS: z.coerce.number().int().min(0).max(72).default(24),
   LOGIN_MAX_FAILURES: z.coerce.number().int().min(3).max(20).default(5),
   LOGIN_LOCK_MINUTES: z.coerce.number().int().min(5).max(1440).default(15),
   PARSER_URL: z.string().url().default('http://localhost:8000'),
@@ -35,6 +42,11 @@ const envSchema = z.object({
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).transform((value) => value === 'true').optional()
+}).superRefine((value, context) => {
+  if (!value.LICENSE_ENFORCEMENT) return;
+  for (const key of ['LICENSE_SERVER_URL', 'LICENSE_ACTIVATION_CODE', 'LICENSE_DEVICE_ID'] as const) {
+    if (!value[key]) context.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: '安裝版啟用授權時為必填' });
+  }
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

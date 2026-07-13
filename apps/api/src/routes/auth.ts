@@ -10,6 +10,7 @@ import {
   buildOtpAuthUri, consumeAuthToken, createAuthToken, createTotpSecret, identityServicesReady,
   sendEmail, verifyCaptcha, verifyTotp
 } from '../lib/identity.js';
+import { subscriptionSnapshot } from '../lib/subscription.js';
 
 const baseCredentials = z.object({ email: z.string().email().transform((value) => value.toLowerCase()), password: z.string().min(10).max(128) });
 
@@ -19,13 +20,16 @@ function issueToken(app: FastifyInstance, userId: string, workspaceId: string): 
 
 function sessionPayload(app: FastifyInstance, user: any, membership: any) {
   const workspace = membership.workspace;
+  const entitlement = subscriptionSnapshot(workspace);
   return {
     token: issueToken(app, user.id, membership.workspaceId),
     user: { id: user.id, email: user.email, name: user.name, platformRole: user.platformRole, mfaEnabled: Boolean(user.mfaEnabledAt) },
     workspace: {
-      id: workspace.id, name: workspace.name, role: membership.role, plan: workspace.plan,
-      fileQuota: workspace.fileQuota, totalMbQuota: workspace.totalMbQuota,
-      outputMbQuota: workspace.outputMbQuota, downloadQuota: workspace.downloadQuota
+      id: workspace.id, name: workspace.name, role: membership.role, plan: entitlement.effectivePlan,
+      purchasedPlan: entitlement.purchasedPlan,
+      subscription: { active: entitlement.active, status: entitlement.status, interval: entitlement.interval, startedAt: entitlement.startedAt, endsAt: entitlement.endsAt },
+      fileQuota: entitlement.catalog.fileQuota, totalMbQuota: entitlement.catalog.totalMbQuota,
+      outputMbQuota: entitlement.catalog.outputMbQuota, downloadQuota: entitlement.catalog.downloadQuota
     }
   };
 }
@@ -130,7 +134,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/workspaces', { preHandler: app.authenticate }, async (request) => {
     const items = await prisma.workspaceMember.findMany({ where: { userId: request.auth.userId }, include: { workspace: true } });
-    return { items: items.map((item) => ({ id: item.workspaceId, name: item.workspace.name, role: item.role, plan: item.workspace.plan })) };
+    return { items: items.map((item) => { const entitlement = subscriptionSnapshot(item.workspace); return { id: item.workspaceId, name: item.workspace.name, role: item.role, plan: entitlement.effectivePlan, purchasedPlan: entitlement.purchasedPlan, subscription: { active: entitlement.active, status: entitlement.status, endsAt: entitlement.endsAt } }; }) };
   });
 
   app.post('/switch-workspace', { preHandler: app.authenticate }, async (request) => {

@@ -1,0 +1,10 @@
+{
+  "application": "ExcelMaster",
+  "version": "1.0.0",
+  "packageFormat": 1,
+  "licenseRequired": true,
+  "licenseCheckIntervalMinutes": 15,
+  "maximumOfflineGraceHours": 24,
+  "platforms": ["WINDOWS", "MACOS"],
+  "manual": "安裝說明.md"
+}

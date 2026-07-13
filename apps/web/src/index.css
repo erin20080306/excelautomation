@@ -17,4 +17,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .table { @apply w-full min-w-[720px] text-left text-sm; }
   .table th { @apply border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500; }
   .table td { @apply border-b border-slate-100 px-4 py-3.5 text-slate-700; }
+  .legal-copy h2 { @apply mt-8 text-lg font-black text-ink; }
+  .legal-copy p { @apply mt-3; }
+  .legal-copy ul { @apply mt-3 list-disc space-y-2 pl-6; }
 }

@@ -11,7 +11,7 @@
     "dev": "concurrently -n web,api,worker -c blue,green,magenta \"npm run dev -w @excelmaster/web\" \"npm run dev -w @excelmaster/api\" \"npm run dev -w @excelmaster/worker\"",
     "build": "npm run build -w @excelmaster/shared && npm run build -w @excelmaster/processor && npm run build -w @excelmaster/api && npm run build -w @excelmaster/worker && npm run build -w @excelmaster/web",
     "build:vercel": "npm run build -w @excelmaster/shared && npm run build -w @excelmaster/processor && npm run build -w @excelmaster/api && npm run build -w @excelmaster/web",
-    "build:api:vercel": "npm run build -w @excelmaster/shared && npm run build -w @excelmaster/processor && npm run build -w @excelmaster/api",
+    "build:api:vercel": "npm run db:deploy:safe && npm run build -w @excelmaster/shared && npm run build -w @excelmaster/processor && npm run build -w @excelmaster/api",
     "build:web": "npm run build -w @excelmaster/shared && npm run build -w @excelmaster/web",
     "typecheck": "npm run build -w @excelmaster/shared && npm run build -w @excelmaster/processor && npm run typecheck --workspaces --if-present",
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
@@ -20,8 +20,12 @@
     "test:parser": "apps/parser/.venv/bin/python -m pytest apps/parser/tests -q",
     "test:watch": "vitest",
     "db:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
+    "db:deploy:safe": "tsx apps/api/src/deploy-schema.ts",
     "db:push": "prisma db push --schema apps/api/prisma/schema.prisma",
     "db:seed": "tsx --env-file=.env apps/api/src/seed.ts",
+    "release:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Platform WINDOWS",
+    "release:macos": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Platform MACOS",
+    "release:verify": "node scripts/verify-release.mjs",
     "postinstall": "npm run db:generate"
   },
   "devDependencies": {

@@ -12,6 +12,7 @@ import { ReportTypesPage, RulesPage, SchemasPage, SourcesPage, TemplatesPage } f
 import { AuditPage, ExportsPage, SettingsPage } from './pages/OperationsPages';
 import { AdminPage, BillingPage } from './pages/AdminPages';
 import { ResetPasswordPage, VerifyEmailPage } from './pages/IdentityPages';
+import { PrivacyPage, SecurityPolicyPage } from './pages/LegalPages';
 
 function ProtectedLayout() {
   const { session } = useAuth();
@@ -25,6 +26,8 @@ export function App() {
     <Route path="/login" element={<LoginPage />} />
     <Route path="/verify-email" element={<VerifyEmailPage />} />
     <Route path="/reset-password" element={<ResetPasswordPage />} />
+    <Route path="/privacy" element={<PrivacyPage />} />
+    <Route path="/security" element={<SecurityPolicyPage />} />
     <Route element={<ProtectedLayout />}>
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/projects" element={<ProjectsPage />} />

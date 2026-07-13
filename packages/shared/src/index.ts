@@ -73,6 +73,14 @@ export interface UserSession {
   workspace: {
     id: string; name: string; role: string;
     plan: 'TRIAL' | 'STARTER' | 'PROFESSIONAL' | 'BUSINESS' | 'ENTERPRISE';
+    purchasedPlan: 'TRIAL' | 'STARTER' | 'PROFESSIONAL' | 'BUSINESS' | 'ENTERPRISE';
+    subscription: {
+      active: boolean;
+      status: 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'EXPIRED' | 'SUSPENDED';
+      interval: 'MONTHLY' | 'YEARLY' | 'MANUAL' | null;
+      startedAt: string | null;
+      endsAt: string | null;
+    };
     fileQuota: number; totalMbQuota: number; outputMbQuota: number; downloadQuota: number;
   };
 }

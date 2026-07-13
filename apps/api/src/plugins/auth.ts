@@ -3,6 +3,7 @@ import fp from 'fastify-plugin';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
 import { hasPermission, type WorkspacePermission } from '../lib/access.js';
+import { subscriptionSnapshot } from '../lib/subscription.js';
 
 export const authPlugin = fp(async (app: FastifyInstance) => {
   app.decorateRequest('auth');
@@ -25,16 +26,21 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
     if (!member) throw app.httpErrors.forbidden('無此工作區權限');
     if (member.user.status !== 'ACTIVE' || !member.user.emailVerifiedAt) throw app.httpErrors.unauthorized('帳號尚未啟用或已停權');
     if (member.workspace.suspendedAt && member.user.platformRole !== 'SUPERADMIN') throw app.httpErrors.forbidden('工作區已停用');
+    const entitlement = subscriptionSnapshot(member.workspace);
     request.auth = {
       userId: payload.userId,
       workspaceId: payload.workspaceId,
       role: member.role,
       platformRole: member.user.platformRole,
-      workspacePlan: member.workspace.plan,
-      fileQuota: member.workspace.fileQuota,
-      totalMbQuota: member.workspace.totalMbQuota,
-      outputMbQuota: member.workspace.outputMbQuota,
-      downloadQuota: member.workspace.downloadQuota
+      workspacePlan: entitlement.effectivePlan,
+      purchasedPlan: entitlement.purchasedPlan,
+      subscriptionActive: entitlement.active,
+      subscriptionStatus: entitlement.status,
+      subscriptionEndsAt: entitlement.endsAt,
+      fileQuota: entitlement.catalog.fileQuota,
+      totalMbQuota: entitlement.catalog.totalMbQuota,
+      outputMbQuota: entitlement.catalog.outputMbQuota,
+      downloadQuota: entitlement.catalog.downloadQuota
     };
   });
 });
