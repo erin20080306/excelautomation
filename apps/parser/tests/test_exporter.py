@@ -10,7 +10,7 @@ from app.analyzer import analyze_file
 def test_export_is_openable_typed_and_formula_safe(tmp_path: Path):
     output = tmp_path / "result.xlsx"
     payload = {
-        "config": {"includeOverview": True, "includeMappings": True, "includeExceptions": True, "mergeByType": True, "separateSourceSheets": True, "includeStatistics": True, "preserveRaw": True, "includeAudit": True},
+        "config": {"includeProfessionalReport": True, "includeOverview": True, "includeMappings": True, "includeExceptions": True, "mergeAll": True, "mergeByType": False, "separateSourceSheets": True, "includeStatistics": True, "preserveRaw": True, "includeAudit": True},
         "analyses": [{
             "fileName": "sales.xlsx", "requiresReview": False, "warnings": [],
             "classification": {"type": "sales", "confidence": 0.9},
@@ -24,10 +24,11 @@ def test_export_is_openable_typed_and_formula_safe(tmp_path: Path):
     create_export(payload, str(output))
     workbook = openpyxl.load_workbook(output, data_only=False)
     assert "01_檔案總覽" in workbook.sheetnames
-    assert "sales_總表" in workbook.sheetnames
+    assert "00_專業分析" in workbook.sheetnames
+    assert "整合總表" in workbook.sheetnames
     assert "統計報表" in workbook.sheetnames
     assert any(name.startswith("原始_") for name in workbook.sheetnames)
-    sheet = workbook["sales_總表"]
+    sheet = workbook["整合總表"]
     headers = [cell.value for cell in sheet[1]]
     date_cell = sheet.cell(2, headers.index("date") + 1)
     amount_cell = sheet.cell(2, headers.index("amount") + 1)
@@ -35,4 +36,5 @@ def test_export_is_openable_typed_and_formula_safe(tmp_path: Path):
     assert isinstance(date_cell.value, datetime)
     assert amount_cell.value == 1200
     assert comment_cell.value.startswith("'=")
+    assert workbook["00_專業分析"]["A1"].value == "ExcelMaster 專業整合分析報告"
     assert analyze_file(str(output), output.name)["workbook"]["sheetCount"] == len(workbook.sheetnames)

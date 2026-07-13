@@ -24,6 +24,38 @@ const allowedMime = new Set([
   'text/csv', 'text/tab-separated-values', 'text/plain', 'application/zip'
 ]);
 
+const googleSheetInput = z.object({
+  url: z.string().url(),
+  name: z.string().trim().min(1).max(100).optional()
+});
+
+export function googleSheetId(value: string): string {
+  const url = new URL(value);
+  if (url.protocol !== 'https:' || url.hostname !== 'docs.google.com') throw new Error('請貼上有效的 Google Sheets 分享連結');
+  const match = url.pathname.match(/^\/spreadsheets\/d\/([a-zA-Z0-9_-]+)(?:\/|$)/);
+  if (!match?.[1]) throw new Error('Google Sheets 連結格式不正確');
+  return match[1];
+}
+
+async function downloadPublicGoogleSheet(url: string, target: string, maxBytes: number): Promise<void> {
+  const id = googleSheetId(url);
+  const response = await fetch(`https://docs.google.com/spreadsheets/d/${encodeURIComponent(id)}/export?format=xlsx`, {
+    redirect: 'follow',
+    signal: AbortSignal.timeout(60_000),
+    headers: { 'user-agent': 'ExcelMaster/1.0' }
+  });
+  if (!response.ok) {
+    if ([401, 403, 404].includes(response.status)) throw new Error('無法讀取此 Google Sheet；請將共用權限設為「知道連結的任何人可檢視」');
+    throw new Error(`Google Sheets 下載失敗（${response.status}）`);
+  }
+  const declaredSize = Number(response.headers.get('content-length') ?? 0);
+  if (declaredSize > maxBytes) throw new Error('Google Sheet 大小超過目前方案限制');
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!bytes.length) throw new Error('Google Sheet 沒有可下載的內容');
+  if (bytes.length > maxBytes) throw new Error('Google Sheet 大小超過目前方案限制');
+  await fsp.writeFile(target, bytes, { flag: 'wx' });
+}
+
 async function hashFile(filePath: string): Promise<string> {
   const hash = crypto.createHash('sha256');
   for await (const chunk of fs.createReadStream(filePath)) hash.update(chunk as Buffer);
@@ -95,7 +127,7 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
     const query = z.object({ q: z.string().trim().optional(), reportType: z.string().optional(), page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
     const where = { workspaceId: request.auth.workspaceId, ...(query.q ? { name: { contains: query.q, mode: 'insensitive' as const } } : {}), ...(query.reportType ? { reportTypeKey: query.reportType } : {}) };
     const [items, total] = await Promise.all([
-      prisma.sourceFile.findMany({ where, include: { sheets: { select: { id: true, name: true, maxRow: true, maxColumn: true } }, analyses: { orderBy: { version: 'desc' }, take: 1, select: { result: true, requiresReview: true } } }, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
+      prisma.sourceFile.findMany({ where, include: { sheets: { select: { id: true, name: true, maxRow: true, maxColumn: true, metadata: true, _count: { select: { fields: true } } } }, analyses: { orderBy: { version: 'desc' }, take: 1, select: { result: true, requiresReview: true } } }, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
       prisma.sourceFile.count({ where })
     ]);
     return { items, total };
@@ -159,9 +191,10 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
         if (!project) throw app.httpErrors.badRequest('整合專案不存在');
       }
       let processingJob = null;
-      if (accepted.length) {
+      const batchSourceIds = [...new Set([...accepted, ...duplicates])];
+      if (batchSourceIds.length) {
         processingJob = await prisma.$transaction(async (tx) => {
-          const created = await tx.processingJob.create({ data: { workspaceId: request.auth.workspaceId, projectId, name: batchName, totalItems: accepted.length, items: { create: accepted.map((sourceFileId) => ({ sourceFileId })) } }, include: { items: true } });
+          const created = await tx.processingJob.create({ data: { workspaceId: request.auth.workspaceId, projectId, name: batchName, totalItems: batchSourceIds.length, items: { create: batchSourceIds.map((sourceFileId) => ({ sourceFileId })) } }, include: { items: true } });
           if (!inlineProcessor) await enqueueProcessingMessages(tx, created.items.map((item) => ({ type: 'analyze-file', processingJobId: created.id, itemId: item.id, maxAttempts: 3 })));
           return created;
         }, { maxWait: 10_000, timeout: 30_000 });
@@ -177,6 +210,66 @@ export async function fileRoutes(app: FastifyInstance, storage: StorageAdapter):
         }
       }
       await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'files.upload', entityType: 'ProcessingJob', entityId: processingJob?.id, metadata: { accepted: accepted.length, duplicates: duplicates.length, rejected: rejected.length }, ipAddress: request.ip });
+      return reply.code(inlineProcessor ? 201 : 202).send({ job: processingJob, accepted: accepted.length, duplicates: duplicates.length, rejected, processingErrors, processingMode: inlineProcessor ? 'inline' : 'queue' });
+    } finally {
+      await fsp.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  app.post('/google-sheets', async (request, reply) => {
+    const body = z.object({
+      sheets: z.array(googleSheetInput).min(1).max(50),
+      batchName: z.string().trim().min(1).max(100).optional(),
+      projectId: z.string().cuid().optional()
+    }).parse(request.body);
+    const unlimited = hasUnlimitedUsage(request.auth.platformRole);
+    if (!unlimited && body.sheets.length > request.auth.fileQuota) throw app.httpErrors.badRequest(`目前方案單批最多處理 ${request.auth.fileQuota} 份試算表`);
+    if (body.projectId) {
+      const project = await prisma.integrationProject.findFirst({ where: { id: body.projectId, workspaceId: request.auth.workspaceId } });
+      if (!project) throw app.httpErrors.badRequest('整合專案不存在');
+    }
+    const inlineProcessor = app.config.PROCESSING_MODE === 'inline' ? createInlineProcessor(storage, app.config, { unlimited, maxOutputMb: request.auth.outputMbQuota }) : null;
+    const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'excelmaster-google-'));
+    const accepted: string[] = [];
+    const duplicates: string[] = [];
+    const rejected: Array<{ name: string; error: string }> = [];
+    const processingErrors: Array<{ sourceFileId: string; error: string }> = [];
+    let downloadedBytes = 0;
+    try {
+      for (const [index, sheet] of body.sheets.entries()) {
+        const label = safeFileName(`${sheet.name?.replace(/\.xlsx$/i, '') || `Google_Sheet_${index + 1}`}.xlsx`);
+        const target = path.join(tempDir, `${nanoid()}.xlsx`);
+        try {
+          const remaining = unlimited ? app.config.MAX_FILE_SIZE_MB * 1024 * 1024 : request.auth.totalMbQuota * 1024 * 1024 - downloadedBytes;
+          if (remaining <= 0) throw new Error(`目前方案單批總量上限為 ${request.auth.totalMbQuota} MB`);
+          await downloadPublicGoogleSheet(sheet.url, target, Math.min(app.config.MAX_FILE_SIZE_MB * 1024 * 1024, remaining));
+          downloadedBytes += (await fsp.stat(target)).size;
+          const result = await persistSourceFile({ workspaceId: request.auth.workspaceId, filePath: target, originalName: label, originalPath: sheet.url, storage });
+          (result.duplicate ? duplicates : accepted).push(result.id);
+        } catch (error) {
+          rejected.push({ name: sheet.name || `Google Sheet ${index + 1}`, error: error instanceof Error ? error.message : 'Google Sheet 匯入失敗' });
+        }
+      }
+      const sourceIds = [...new Set([...accepted, ...duplicates])];
+      let processingJob = null;
+      if (sourceIds.length) {
+        processingJob = await prisma.$transaction(async (tx) => {
+          const created = await tx.processingJob.create({ data: { workspaceId: request.auth.workspaceId, projectId: body.projectId, name: body.batchName ?? `Google Sheets 整合 ${new Date().toLocaleString('zh-TW', { hour12: false })}`, totalItems: sourceIds.length, items: { create: sourceIds.map((sourceFileId) => ({ sourceFileId })) }, config: { source: 'google_sheets_public' } }, include: { items: true } });
+          if (!inlineProcessor) await enqueueProcessingMessages(tx, created.items.map((item) => ({ type: 'analyze-file', processingJobId: created.id, itemId: item.id, maxAttempts: 3 })));
+          return created;
+        }, { maxWait: 10_000, timeout: 30_000 });
+        if (inlineProcessor) {
+          for (const item of processingJob.items) {
+            try {
+              await inlineProcessor.analyzeItem({ type: 'analyze-file', processingJobId: processingJob.id, itemId: item.id, maxAttempts: 1 });
+            } catch (error) {
+              processingErrors.push({ sourceFileId: item.sourceFileId, error: error instanceof Error ? error.message : '分析失敗' });
+            }
+          }
+          processingJob = await prisma.processingJob.findUnique({ where: { id: processingJob.id }, include: { items: true } });
+        }
+      }
+      await writeAudit({ workspaceId: request.auth.workspaceId, userId: request.auth.userId, action: 'google_sheets.import', entityType: 'ProcessingJob', entityId: processingJob?.id, metadata: { accepted: accepted.length, duplicates: duplicates.length, rejected: rejected.length }, ipAddress: request.ip });
       return reply.code(inlineProcessor ? 201 : 202).send({ job: processingJob, accepted: accepted.length, duplicates: duplicates.length, rejected, processingErrors, processingMode: inlineProcessor ? 'inline' : 'queue' });
     } finally {
       await fsp.rm(tempDir, { recursive: true, force: true });

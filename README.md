@@ -5,12 +5,13 @@
 ## 核心流程
 
 1. 使用者註冊時建立 Workspace，密碼使用 bcrypt 雜湊。
-2. 瀏覽器可一次上傳多檔、整個資料夾或 ZIP；API 驗證大小、副檔名、MIME、ZIP 解壓上限與安全路徑。
+2. 整合工作台可一次加入多檔、整個資料夾、ZIP，或多個公開分享的 Google Sheets 連結；API 驗證大小、副檔名、MIME、ZIP 解壓上限、Google 網域與安全路徑。
 3. API 以 SHA-256 在 Workspace 內去重，並以同一個 PostgreSQL transaction 建立 ProcessingJob、ProcessingJobItem 與 Queue 訊息。
-4. Worker 從 PostgreSQL Queue 拉取工作，呼叫 Python Parser 分析工作表結構、表頭、資料區、格式、公式、分類與欄位映射。
+4. Worker 從 PostgreSQL Queue 拉取工作，呼叫 Python Parser 依內容自動分析工作表結構、深層／多層表頭、資料區、格式、公式、分類與欄位語意；預設不依賴固定解析模板。
 5. 低信心度分類、表頭或欄位映射建立 ReviewTask，不會直接混入自動整合。
 6. 整合專案可保存 Append、Join、Lookup、Group、Split、Transform 與組合鍵去重管線。
-7. 輸出由背景 Worker 產生真正的 `.xlsx`，包含總覽、欄位映射、異常、分類資料與處理紀錄；下載網址使用短效 JWT 簽名。
+7. 輸出由背景 Worker 產生真正的 `.xlsx`，包含整合總表、專業 KPI 分析、品質分數、圖表、欄位映射、異常與處理紀錄；下載網址使用短效 JWT 簽名。
+8. 每次整合可同時產生 `.gs` Google Apps Script：在使用者自己的 Google Drive 建立新 Google Sheet、重新智慧合併、建立 GAS 專業分析與圖表，並支援圖片網址縮圖、報告封面圖與 Logo。
 
 ## 專案結構
 
