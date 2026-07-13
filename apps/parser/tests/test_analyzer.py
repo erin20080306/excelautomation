@@ -60,3 +60,21 @@ def test_date_and_money_normalization():
     assert parse_number("NTD 1,234.50") == 1234.5
     assert parse_number("(1,000)") == -1000
     assert parse_number("25%") == 0.25
+
+
+def test_detects_deep_header_and_semantic_synonyms_without_template(tmp_path: Path):
+    target = tmp_path / "不固定格式.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    for index in range(55):
+        sheet.append([f"前言說明 {index + 1}", None, None, None])
+    sheet.append(["訂單日期", "客戶簡稱", "品號", "銷售數量"])
+    sheet.append(["2026/07/01", "甲公司", "A-01", 3])
+    sheet.append(["2026/07/02", "乙公司", "B-02", 5])
+    workbook.save(target)
+
+    result = analyze_file(str(target), target.name)
+    analyzed = result["workbook"]["sheets"][0]
+    assert analyzed["headerRow"] == 56
+    assert [field["targetKey"] for field in analyzed["fields"]] == ["date", "customer", "product_id", "quantity"]
+    assert analyzed["dataRowCount"] == 2

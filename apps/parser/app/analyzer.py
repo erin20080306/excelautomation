@@ -35,25 +35,33 @@ REPORT_KEYWORDS: dict[str, set[str]] = {
 }
 
 FIELD_ALIASES: dict[str, set[str]] = {
-    "date": {"日期", "交易日期", "出貨日期", "採購日期", "date"},
-    "customer": {"客戶", "客戶名稱", "公司", "customer", "company"},
+    "date": {"日期", "交易日期", "訂單日期", "出貨日期", "採購日期", "建立日期", "時間", "date", "datetime", "createdat"},
+    "customer": {"客戶", "客戶名稱", "公司", "公司名稱", "買方", "客戶簡稱", "customer", "client", "company"},
     "company": {"公司名稱", "客戶名稱", "company"},
     "contact": {"聯絡人", "contact", "窗口"},
     "product": {"商品", "商品名稱", "產品", "品項", "品名", "product", "item"},
-    "product_id": {"商品編號", "料號", "sku", "itemno", "productid"},
-    "quantity": {"數量", "出貨量", "庫存量", "現有數量", "qty", "quantity", "onhand"},
-    "unit_price": {"單價", "售價", "price", "unitprice"},
-    "amount": {"金額", "小計", "合計", "total", "amount", "採購金額"},
+    "product_id": {"商品編號", "產品編號", "品號", "貨號", "料號", "sku", "itemno", "itemcode", "productid"},
+    "quantity": {"數量", "訂購數量", "銷售數量", "出貨量", "庫存量", "現有數量", "件數", "qty", "quantity", "onhand"},
+    "unit_price": {"單價", "售價", "價格", "未稅單價", "含稅單價", "price", "unitprice"},
+    "amount": {"金額", "總額", "未稅金額", "含稅金額", "銷售額", "小計", "合計", "total", "amount", "採購金額"},
     "name": {"姓名", "員工姓名", "人員姓名", "name", "employeename"},
     "employee_id": {"員工編號", "工號", "employeeid", "staffid"},
     "supplier": {"供應商", "廠商", "vendor", "supplier"},
     "phone": {"電話", "手機", "聯絡電話", "phone", "tel", "mobile"},
     "email": {"email", "電子郵件", "mail", "e-mail"},
     "address": {"地址", "公司地址", "address"},
-    "warehouse": {"倉庫", "庫別", "warehouse"},
+    "warehouse": {"倉庫", "倉別", "庫別", "儲位", "warehouse", "location"},
     "unit": {"單位", "uom", "unit"},
     "specification": {"規格", "型號", "spec", "specification"},
     "purchase_no": {"採購單號", "po", "pono", "p/ono"},
+    "order_no": {"訂單編號", "訂單號", "單號", "orderno", "orderid"},
+    "invoice_no": {"發票號碼", "發票號", "invoice", "invoiceno"},
+    "salesperson": {"業務", "業務員", "負責人", "承辦人", "salesperson", "owner"},
+    "department": {"部門", "單位部門", "department", "dept"},
+    "status": {"狀態", "處理狀態", "訂單狀態", "status"},
+    "category": {"分類", "類別", "產品分類", "category", "type"},
+    "tax": {"稅額", "營業稅", "tax", "vat"},
+    "discount": {"折扣", "折讓", "discount"},
 }
 
 TOTAL_WORDS = {"合計", "總計", "總額", "grandtotal", "total"}
@@ -66,6 +74,19 @@ def normalize_text(value: Any) -> str:
         return ""
     text = unicodedata.normalize("NFKC", str(value)).strip().lower()
     return re.sub(r"[^\w\u3400-\u9fff]", "", text)
+
+
+def text_similarity(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    if left == right:
+        return 1.0
+    if min(len(left), len(right)) >= 2 and (left in right or right in left):
+        return 0.9 * min(len(left), len(right)) / max(len(left), len(right)) + 0.1
+    def grams(value: str) -> set[str]:
+        return {value[index:index + 2] for index in range(max(1, len(value) - 1))}
+    left_grams, right_grams = grams(left), grams(right)
+    return len(left_grams & right_grams) / max(1, len(left_grams | right_grams))
 
 
 def serializable(value: Any) -> Any:
@@ -164,19 +185,25 @@ def score_header(rows: list[list[Any]], index: int) -> float:
     density = len(nonempty) / max(1, len(row))
     text_ratio = sum(isinstance(value, str) for value in nonempty) / len(nonempty)
     unique_ratio = len({normalize_text(value) for value in nonempty}) / len(nonempty)
-    keyword_hits = sum(any(normalize_text(value) in aliases for aliases in FIELD_ALIASES.values()) for value in nonempty)
+    keyword_hits = sum(any(normalize_text(value) in {normalize_text(alias) for alias in aliases} for aliases in FIELD_ALIASES.values()) for value in nonempty)
     next_density = 0.0
+    type_transition = 0.0
     if index + 1 < len(rows):
-        next_nonempty = sum(value not in (None, "") for value in rows[index + 1])
+        next_values = [value for value in rows[index + 1] if value not in (None, "")]
+        next_nonempty = len(next_values)
         next_density = next_nonempty / max(1, len(row))
+        if next_values:
+            header_text_ratio = sum(isinstance(value, str) for value in nonempty) / len(nonempty)
+            next_text_ratio = sum(isinstance(value, str) for value in next_values) / len(next_values)
+            type_transition = max(0.0, header_text_ratio - next_text_ratio)
     title_penalty = 0.35 if len(nonempty) == 1 else 0
-    return max(0.0, min(1.0, 0.25 * density + 0.25 * text_ratio + 0.15 * unique_ratio + 0.2 * min(1, keyword_hits / 3) + 0.15 * next_density - title_penalty))
+    return max(0.0, min(1.0, 0.22 * density + 0.22 * text_ratio + 0.14 * unique_ratio + 0.22 * min(1, keyword_hits / 3) + 0.12 * next_density + 0.08 * type_transition - title_penalty))
 
 
 def detect_header(rows: list[list[Any]]) -> tuple[int, int, float]:
     if not rows:
         return 0, 1, 0.0
-    scores = [(index, score_header(rows, index)) for index in range(min(40, len(rows)))]
+    scores = [(index, score_header(rows, index)) for index in range(min(100, len(rows)))]
     header_index, confidence = max(scores, key=lambda item: item[1])
     levels = 1
     if header_index > 0 and score_header(rows, header_index - 1) >= confidence * 0.82:
@@ -233,9 +260,9 @@ def map_field(header: str, samples: list[Any], column_index: int, total_columns:
     else:
         candidates: list[tuple[str, float]] = []
         for key, aliases in FIELD_ALIASES.items():
-            overlap = max((len(set(normalized) & set(alias)) / max(len(set(normalized) | set(alias)), 1) for alias in aliases), default=0)
-            if overlap >= 0.55:
-                candidates.append((key, overlap * 0.8))
+            similarity = max((text_similarity(normalized, normalize_text(alias)) for alias in aliases), default=0)
+            if similarity >= 0.58:
+                candidates.append((key, min(0.92, similarity * 0.9)))
         if value_type in {"email", "phone", "date"}:
             typed_target = {"email": "email", "phone": "phone", "date": "date"}[value_type]
             candidates.append((typed_target, 0.72 * type_confidence))
@@ -305,6 +332,13 @@ def analyze_sheet(ws: Worksheet) -> dict[str, Any]:
     data_start = header_index + header_levels
     last_nonempty = max((index for index, row in enumerate(rows) if any(value not in (None, "") for value in row)), default=data_start)
     kinds = {index: row_kind(rows[index]) for index in range(data_start, last_nonempty + 1)}
+    normalized_headers = {normalize_text(header.split(" / ")[-1]) for header in headers}
+    for index in range(data_start, last_nonempty + 1):
+        values = [normalize_text(value) for value in rows[index] if value not in (None, "")]
+        if values and len(set(values) & normalized_headers) / len(values) >= 0.7:
+            kinds[index] = "repeated_header"
+        elif width >= 3 and len(values) == 1 and not any(parse_number(value) is not None or parse_date(value) is not None for value in rows[index] if value not in (None, "")):
+            kinds[index] = "note"
     data_indices = [index for index, kind in kinds.items() if kind == "data" and any(value not in (None, "") for value in rows[index])]
     data_end = max(data_indices, default=data_start - 1)
     fields = [map_field(header, [rows[index][column] if column < len(rows[index]) else None for index in data_indices], column, width) for column, header in enumerate(headers)]

@@ -11,8 +11,11 @@ import { hasUnlimitedUsage } from '../lib/access.js';
 const exportConfig = z.object({
   separateFiles: z.boolean().default(false),
   separateSourceSheets: z.boolean().default(true),
+  mergeAll: z.boolean().default(true),
   mergeByType: z.boolean().default(true),
   includeAllDetails: z.boolean().default(true),
+  includeProfessionalReport: z.boolean().default(true),
+  includeGasReport: z.boolean().default(true),
   includeOverview: z.boolean().default(true),
   includeStatistics: z.boolean().default(false),
   preserveRaw: z.boolean().default(false),
